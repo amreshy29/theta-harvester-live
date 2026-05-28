@@ -39,7 +39,21 @@ function parseFyersTick(raw: string) {
   }
 }
 
-// ── Profile fetch (needed for WebSocket user_id) ──────────────────────────────
+// Helper to extract client ID (fy_id) from JWT access token
+function getClientIdFromToken(token: string): string {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return '';
+    const payloadDecoded = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+    const payload = JSON.parse(payloadDecoded);
+    return payload.fy_id || payload.client_id || '';
+  } catch (err) {
+    console.error('Failed to parse JWT token for client ID:', err);
+    return '';
+  }
+}
+
+// ── Profile fetch (needed for WebSocket user_id fallback) ──────────────────────
 async function getFyersUserId(appId: string, accessToken: string): Promise<string> {
   try {
     const res = await fetch('https://api-t1.fyers.in/api/v3/profile', {
@@ -47,7 +61,8 @@ async function getFyersUserId(appId: string, accessToken: string): Promise<strin
     });
     const j = await res.json();
     return j?.data?.fy_id || j?.data?.client_id || appId.split('-')[0] || '';
-  } catch {
+  } catch (err) {
+    console.error('Failed to fetch profile from Fyers API:', err);
     return appId.split('-')[0] || '';
   }
 }
@@ -84,15 +99,20 @@ export async function GET() {
 
       // ── LIVE: Fyers WebSocket ──────────────────────────────────────────────
       try {
-        const userId = await getFyersUserId(appId, accessToken);
+        const userId = getClientIdFromToken(accessToken) || await getFyersUserId(appId, accessToken);
+        console.log(`[Fyers Stream] Connecting for client ID: ${userId}`);
+
         const wsUrl  =
           `wss://api-t2.fyers.in/socket/2.0/dataSock` +
           `?access_token=${encodeURIComponent(`${appId}:${accessToken}`)}` +
           `&user_id=${encodeURIComponent(userId)}`;
 
+        console.log(`[Fyers Stream] Connecting to: ${wsUrl.slice(0, 80)}...`);
+
         const ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
+          console.log(`[Fyers Stream] WebSocket connection opened successfully for ${userId}`);
           send('status', { live: true, connected: true, userId });
           // Subscribe to all watchlist symbols (level 1 quote + OI)
           ws.send(JSON.stringify({
@@ -111,12 +131,20 @@ export async function GET() {
           if (tick) send('tick', tick);
         };
 
-        ws.onerror = () => {
-          send('status', { live: true, connected: false, error: 'WebSocket error' });
+        ws.onerror = (err) => {
+          console.error('[Fyers Stream] WebSocket error:', err);
+          send('status', { live: true, connected: false, error: 'WebSocket connection error' });
         };
 
-        ws.onclose = () => {
-          if (!closed) send('status', { live: true, connected: false, error: 'WebSocket closed' });
+        ws.onclose = (event) => {
+          console.log(`[Fyers Stream] WebSocket closed. Code: ${event.code}, Reason: ${event.reason || 'none'}`);
+          if (!closed) {
+            send('status', {
+              live: true,
+              connected: false,
+              error: `WebSocket closed (code ${event.code}): ${event.reason || 'No reason provided'}`
+            });
+          }
         };
 
         // Keep-alive ping every 25s (Fyers drops idle connections after 30s)
@@ -126,6 +154,7 @@ export async function GET() {
         }, 25_000);
 
       } catch (err) {
+        console.error('[Fyers Stream] Setup error:', err);
         send('status', { live: true, connected: false, error: String(err) });
       }
     },
