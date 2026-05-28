@@ -73,12 +73,14 @@ export default function ThetaDash() {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [positions, setPositions] = useState<PaperPosition[]>([]);
   const [trades, setTrades] = useState<PaperTrade[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [lastTick, setLastTick] = useState('');
+  const [loading, setLoading]     = useState(true);
+  const [lastTick, setLastTick]   = useState('');
   const [executing, setExecuting] = useState<string | null>(null);
   const [expandedPos, setExpandedPos] = useState<string | null>(null);
-  const [toasts, setToasts] = useState<{id:string;msg:string;type:'ok'|'err'}[]>([]);
-  const tickRef = useRef<ReturnType<typeof setInterval>|null>(null);
+  const [toasts, setToasts]       = useState<{id:string;msg:string;type:'ok'|'err'}[]>([]);
+  const [streamStatus, setStreamStatus] = useState<'connecting'|'live'|'simulated'|'error'>('connecting');
+  const esRef  = useRef<EventSource | null>(null);
+  const posRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const addToast = (msg: string, type: 'ok'|'err' = 'ok') => {
     const id = Math.random().toString(36).slice(2);
@@ -95,9 +97,24 @@ export default function ThetaDash() {
   }, []);
 
   const fetchPos = useCallback(async () => {
-    const r = await fetch('/api/paper/trade');
-    const json = await r.json();
-    if (json.success) { setPositions(json.positions); setTrades(json.trades); }
+    try {
+      const r    = await fetch('/api/paper/trade');
+      const json = await r.json();
+      if (json.success) { setPositions(json.positions); setTrades(json.trades); }
+    } catch { /**/ }
+  }, []);
+
+  // Initial quote fetch (gives us signals + portfolioStats on first load)
+  const fetchLive = useCallback(async () => {
+    try {
+      const r    = await fetch('/api/fyers/quote', { cache: 'no-store' });
+      const json: ApiResponse = await r.json();
+      if (json.success) {
+        setData(json);
+        setLastTick(new Date().toLocaleTimeString('en-IN'));
+        setLoading(false);
+      }
+    } catch { /**/ } finally { setLoading(false); }
   }, []);
 
   const execSignal = async (sig: ThetaSignal) => {
@@ -129,10 +146,52 @@ export default function ThetaDash() {
     fetchPos(); addToast('Account reset to 5,00,000');
   };
 
+  // ── SSE stream: real-time ticks from Fyers WebSocket (or simulated) ──────
   useEffect(() => {
-    fetchLive(); fetchPos();
-    tickRef.current = setInterval(() => { fetchLive(); fetchPos(); }, 5000);
-    return () => { if (tickRef.current) clearInterval(tickRef.current); };
+    fetchLive();
+    fetchPos();
+
+    // Positions refresh every 5s (paper engine doesn't need sub-second)
+    posRef.current = setInterval(fetchPos, 5000);
+
+    // SSE connection
+    const es = new EventSource('/api/fyers/stream');
+    esRef.current = es;
+
+    es.addEventListener('status', (e) => {
+      const s = JSON.parse(e.data);
+      if (s.simulated)  setStreamStatus('simulated');
+      else if (s.live && s.connected) setStreamStatus('live');
+      else if (s.error) setStreamStatus('error');
+    });
+
+    es.addEventListener('tick', (e) => {
+      const tick = JSON.parse(e.data) as QuoteData;
+      setLastTick(new Date().toLocaleTimeString('en-IN'));
+      setLoading(false);
+      // Merge incoming tick into quotes, recalculate signals
+      setData(prev => {
+        if (!prev) return prev;
+        const quotes = prev.quotes.map(q =>
+          q.symbol === tick.symbol ? { ...q, ...tick } : q
+        );
+        return { ...prev, quotes, timestamp: new Date().toISOString() };
+      });
+    });
+
+    es.onerror = () => {
+      setStreamStatus('error');
+      // Reconnect after 3s
+      setTimeout(() => {
+        es.close();
+        fetchLive();
+      }, 3000);
+    };
+
+    return () => {
+      es.close();
+      if (posRef.current) clearInterval(posRef.current);
+    };
   }, [fetchLive, fetchPos]);
 
   const stats = data?.portfolioStats;
@@ -179,9 +238,16 @@ export default function ThetaDash() {
           <div>
             <div style={{fontFamily:'Syne',fontSize:20,fontWeight:800,color:'#e8b86d',letterSpacing:'-0.3px'}}>THETA HARVESTER</div>
             <div style={{fontSize:10,color:'#4a6070',textTransform:'uppercase',letterSpacing:'.1em',marginTop:2}}>
-              <span className="pulse" style={{display:'inline-block',width:6,height:6,borderRadius:'50%',background:data?.isSimulated?'#fbbf24':'#4ade80',marginRight:6}}></span>
-              {data?.isSimulated?'SIMULATED — Add FYERS_APP_ID + FYERS_ACCESS_TOKEN':'FYERS LIVE'} · NSE F&O · 5L Capital
+              <span className="pulse" style={{display:'inline-block',width:6,height:6,borderRadius:'50%',marginRight:6,
+                background: streamStatus==='live' ? '#4ade80' : streamStatus==='simulated' ? '#fbbf24' : streamStatus==='error' ? '#f87171' : '#4a6070',
+              }}></span>
+              {streamStatus==='live'        ? 'FYERS LIVE · WebSocket'
+               : streamStatus==='simulated' ? 'SIMULATED · WebSocket'
+               : streamStatus==='error'     ? 'STREAM ERROR · Retrying'
+               :                             'CONNECTING…'}
+              {' · NSE F&O · 5L Capital'}
             </div>
+
           </div>
           <div style={{padding:'6px 14px',background:rc.bg,border:`1px solid ${rc.border}`,color:rc.color,fontSize:11,letterSpacing:'.1em',textTransform:'uppercase'}}>
             VIX {data?.vix?.toFixed(1)||'—'} · {rc.label}
