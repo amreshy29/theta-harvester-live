@@ -171,42 +171,4 @@ function getNextThursday(): string {
   return d.toISOString().split('T')[0];
 }
 
-// Simulated quote generator (realistic NSE prices with random walk)
-const simulatedBase: Record<string, number> = {
-  'NSE:NIFTY50-INDEX': 24850,
-  'NSE:NIFTYBANK-INDEX': 53200,
-  'NSE:INDIA VIX-INDEX': 14.8,
-  'NSE:FINNIFTY-INDEX': 23640,
-};
-
-const simulatedDrift: Record<string, number> = {};
-
-export function generateSimulatedQuote(symbol: string): QuoteData {
-  const base = simulatedBase[symbol] || 100;
-  if (!simulatedDrift[symbol]) simulatedDrift[symbol] = 0;
-
-  // Random walk with mean reversion
-  const drift = simulatedDrift[symbol];
-  const change = (Math.random() - 0.5) * base * 0.002 - drift * 0.1;
-  simulatedDrift[symbol] = drift + change;
-
-  const ltp = Math.round((base + simulatedDrift[symbol]) * 100) / 100;
-  const changePct = (change / base) * 100;
-
-  return {
-    symbol,
-    ltp,
-    open: base * (1 + (Math.random() - 0.5) * 0.005),
-    high: ltp * (1 + Math.random() * 0.008),
-    low: ltp * (1 - Math.random() * 0.008),
-    close: base,
-    change,
-    changePct,
-    volume: Math.floor(Math.random() * 5000000) + 500000,
-    bid: ltp - 0.05,
-    ask: ltp + 0.05,
-    oi: symbol.includes('VIX') ? undefined : Math.floor(Math.random() * 1000000),
-    timestamp: Date.now(),
-  };
-}
 

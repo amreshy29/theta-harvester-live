@@ -3,7 +3,7 @@
 // IMPORTANT: credentials are read at call-time (not module load)
 // so .env changes / Vercel re-deployments are picked up correctly.
 
-import { QuoteData, generateSimulatedQuote } from './signals';
+import { QuoteData } from './signals';
 
 // Re-export everything from signals to maintain server compatibility
 export * from './signals';
@@ -35,6 +35,7 @@ export function isLive(): boolean {
 
 export interface MarketQuoteResponse {
   s: string;
+  message?: string;
   d: {
     n: string;
     v: {
@@ -57,37 +58,37 @@ export interface MarketQuoteResponse {
 
 export async function fetchQuotes(symbols: string[]): Promise<QuoteData[]> {
   if (!isLive()) {
-    // Return simulated data for demo/testing
-    return symbols.map(sym => generateSimulatedQuote(sym));
+    throw new Error('Fyers credentials not configured.');
   }
 
-  try {
-    const symbolStr = symbols.join(',');
-    const res = await fetch(
-      `${FYERS_BASE_URL}/quotes?symbols=${encodeURIComponent(symbolStr)}`,
-      { headers: getFyersHeaders(), cache: 'no-store' }
-    );
-    const json: MarketQuoteResponse = await res.json();
-    if (json.s !== 'ok') throw new Error('Fyers API error');
-
-    return json.d.map(item => ({
-      symbol: item.n,
-      ltp: item.v.lp,
-      open: item.v.open_price,
-      high: item.v.high_price,
-      low: item.v.low_price,
-      close: item.v.prev_close_price,
-      change: item.v.ch,
-      changePct: item.v.chp,
-      volume: item.v.volume,
-      bid: item.v.bid,
-      ask: item.v.ask,
-      oi: item.v.oi,
-      iv: item.v.iv,
-      timestamp: item.v.tt,
-    }));
-  } catch {
-    // Fallback to simulated
-    return symbols.map(sym => generateSimulatedQuote(sym));
+  const symbolStr = symbols.join(',');
+  const res = await fetch(
+    `${FYERS_BASE_URL}/quotes?symbols=${encodeURIComponent(symbolStr)}`,
+    { headers: getFyersHeaders(), cache: 'no-store' }
+  );
+  if (!res.ok) {
+    throw new Error(`Fyers API HTTP error: ${res.status}`);
   }
+  const json: MarketQuoteResponse = await res.json();
+  if (json.s !== 'ok') {
+    throw new Error(`Fyers API error: ${json.message || 'invalid response'}`);
+  }
+
+  return json.d.map(item => ({
+    symbol: item.n,
+    ltp: item.v.lp,
+    open: item.v.open_price,
+    high: item.v.high_price,
+    low: item.v.low_price,
+    close: item.v.prev_close_price,
+    change: item.v.ch,
+    changePct: item.v.chp,
+    volume: item.v.volume,
+    bid: item.v.bid,
+    ask: item.v.ask,
+    oi: item.v.oi,
+    iv: item.v.iv,
+    timestamp: item.v.tt,
+  }));
 }
+

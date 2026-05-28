@@ -46,8 +46,9 @@ interface PortfolioStats {
 interface ApiResponse {
   success: boolean; quotes: QuoteData[]; signals: ThetaSignal[];
   regime: string; vix: number; portfolioStats: PortfolioStats;
-  isSimulated: boolean; timestamp: string;
+  isSimulated: boolean; timestamp: string; error?: string;
 }
+
 
 const safe = (n: number | undefined | null): number => (n == null || isNaN(n as number) ? 0 : n as number);
 const fmt = (n: number | undefined | null, dec = 0) =>
@@ -75,11 +76,12 @@ export default function ThetaDash() {
   const [positions, setPositions] = useState<PaperPosition[]>([]);
   const [trades, setTrades] = useState<PaperTrade[]>([]);
   const [loading, setLoading]     = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [lastTick, setLastTick]   = useState('');
   const [executing, setExecuting] = useState<string | null>(null);
   const [expandedPos, setExpandedPos] = useState<string | null>(null);
   const [toasts, setToasts]       = useState<{id:string;msg:string;type:'ok'|'err'}[]>([]);
-  const [streamStatus, setStreamStatus] = useState<'connecting'|'live'|'simulated'|'error'>('connecting');
+  const [streamStatus, setStreamStatus] = useState<'connecting'|'live'|'error'>('connecting');
   const esRef  = useRef<EventSource | null>(null);
   const posRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -105,9 +107,18 @@ export default function ThetaDash() {
       if (json.success) {
         setData(json);
         setLastTick(new Date().toLocaleTimeString('en-IN'));
-        setLoading(false);
+        setAuthError(null);
+      } else {
+        const errStr = json.error || '';
+        if (errStr.includes('credentials') || errStr.includes('not configured')) {
+          setAuthError('FYERS_NOT_CONNECTED');
+        } else {
+          setAuthError(errStr || 'Failed to fetch market data.');
+        }
       }
-    } catch { /**/ } finally { setLoading(false); }
+    } catch (err) {
+      setAuthError(String(err) || 'Failed to fetch market data.');
+    } finally { setLoading(false); }
   }, []);
 
   const execSignal = async (sig: ThetaSignal) => {
@@ -153,9 +164,15 @@ export default function ThetaDash() {
 
     es.addEventListener('status', (e) => {
       const s = JSON.parse(e.data);
-      if (s.simulated)  setStreamStatus('simulated');
-      else if (s.live && s.connected) setStreamStatus('live');
-      else if (s.error) setStreamStatus('error');
+      if (s.live && s.connected) {
+        setStreamStatus('live');
+        setAuthError(null);
+      } else if (s.error) {
+        setStreamStatus('error');
+        if (s.error.includes('credentials') || s.error.includes('not configured')) {
+          setAuthError('FYERS_NOT_CONNECTED');
+        }
+      }
     });
 
     es.addEventListener('tick', (e) => {
@@ -242,12 +259,11 @@ export default function ThetaDash() {
             <div style={{fontFamily:'Syne',fontSize:20,fontWeight:800,color:'#e8b86d',letterSpacing:'-0.3px'}}>THETA HARVESTER</div>
             <div style={{fontSize:10,color:'#4a6070',textTransform:'uppercase',letterSpacing:'.1em',marginTop:2}}>
               <span className="pulse" style={{display:'inline-block',width:6,height:6,borderRadius:'50%',marginRight:6,
-                background: streamStatus==='live' ? '#4ade80' : streamStatus==='simulated' ? '#fbbf24' : streamStatus==='error' ? '#f87171' : '#4a6070',
+                background: streamStatus==='live' ? '#4ade80' : streamStatus==='error' ? '#f87171' : '#4a6070',
               }}></span>
-              {streamStatus==='live'        ? 'FYERS LIVE · WebSocket'
-               : streamStatus==='simulated' ? 'SIMULATED · WebSocket'
-               : streamStatus==='error'     ? 'STREAM ERROR · Retrying'
-               :                             'CONNECTING…'}
+              {streamStatus==='live'    ? 'FYERS LIVE · WebSocket'
+               : streamStatus==='error' ? 'STREAM ERROR · Retrying'
+               :                         'CONNECTING…'}
               {' · NSE F&O · 5L Capital'}
             </div>
 
@@ -265,14 +281,12 @@ export default function ThetaDash() {
               </div>
             </div>
           )}
-          {data?.isSimulated && (
-            <a href="/fyers-login" style={{textDecoration:'none'}}>
-              <button style={{background:'transparent',border:'1px solid rgba(232,184,109,.4)',color:'#e8b86d',fontFamily:'inherit',fontSize:10,padding:'6px 12px',cursor:'pointer',textTransform:'uppercase',letterSpacing:'.08em',transition:'all .15s'}}
-                onMouseEnter={e=>(e.currentTarget.style.background='rgba(232,184,109,.08)')}
-                onMouseLeave={e=>(e.currentTarget.style.background='transparent')}
-              >⚡ Connect Fyers</button>
-            </a>
-          )}
+          <a href="/fyers-login" style={{textDecoration:'none'}}>
+            <button style={{background:'transparent',border:'1px solid rgba(232,184,109,.4)',color:'#e8b86d',fontFamily:'inherit',fontSize:10,padding:'6px 12px',cursor:'pointer',textTransform:'uppercase',letterSpacing:'.08em',transition:'all .15s'}}
+              onMouseEnter={e=>(e.currentTarget.style.background='rgba(232,184,109,.08)')}
+              onMouseLeave={e=>(e.currentTarget.style.background='transparent')}
+            >⚡ Connect Fyers</button>
+          </a>
           <div style={{fontSize:10,color:'#4a6070'}}>↻ {lastTick||'—'}</div>
         </div>
       </div>
@@ -287,7 +301,25 @@ export default function ThetaDash() {
 
       {/* MAIN CONTENT */}
       <div style={{padding:'20px 24px',maxWidth:1400,margin:'0 auto'}}>
-        {loading ? (
+        {authError ? (
+          <div className="fi" style={{maxWidth:600,margin:'40px auto',padding:40,background:'#0d1219',border:'1px solid #1e2d3d',textAlign:'center'}}>
+            <div style={{fontSize:32,marginBottom:16}}>🔑</div>
+            <div style={{fontFamily:'Syne',fontSize:20,fontWeight:800,color:'#e8b86d',marginBottom:12}}>Fyers Authentication Required</div>
+            <p style={{color:'#8aa4b8',fontSize:13,lineHeight:1.7,marginBottom:24}}>
+              Theta Harvester operates in <strong>Live Mode only</strong>. To fetch real-time quotes, recalculate strategy signals, and manage paper positions, you must authorize the application with your Fyers account.
+            </p>
+            {authError !== 'FYERS_NOT_CONNECTED' && (
+              <div style={{padding:'10px 14px',background:'rgba(248,113,113,0.05)',border:'1px solid rgba(248,113,113,0.15)',color:'#f87171',fontSize:11,fontFamily:'monospace',marginBottom:24,textAlign:'left',wordBreak:'break-all'}}>
+                System Error: {authError}
+              </div>
+            )}
+            <a href="/fyers-login" style={{textDecoration:'none'}}>
+              <button className="btn btng" style={{fontSize:12,padding:'12px 24px',fontWeight:600}}>
+                ⚡ Connect Fyers Account
+              </button>
+            </a>
+          </div>
+        ) : loading ? (
           <div style={{textAlign:'center',padding:80,color:'#4a6070'}}>Loading market data…</div>
         ) : tab==='live' ? (
           <div>
