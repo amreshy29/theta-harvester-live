@@ -282,8 +282,19 @@ export default function ThetaDash() {
             </div>
           )}
           <a href="/fyers-login" style={{textDecoration:'none'}}>
-            <button style={{background:'transparent',border:'1px solid rgba(232,184,109,.4)',color:'#e8b86d',fontFamily:'inherit',fontSize:10,padding:'6px 12px',cursor:'pointer',textTransform:'uppercase',letterSpacing:'.08em',transition:'all .15s'}}
-              onMouseEnter={e=>(e.currentTarget.style.background='rgba(232,184,109,.08)')}
+            <button style={{
+              background: 'transparent',
+              border: `1px solid ${streamStatus === 'live' ? 'rgba(74,222,128,.4)' : 'rgba(251,191,36,.4)'}`,
+              color: streamStatus === 'live' ? '#4ade80' : '#fbbf24',
+              fontFamily: 'inherit',
+              fontSize: 10,
+              padding: '6px 12px',
+              cursor: 'pointer',
+              textTransform: 'uppercase',
+              letterSpacing: '.08em',
+              transition: 'all .15s'
+            }}
+              onMouseEnter={e=>(e.currentTarget.style.background = streamStatus === 'live' ? 'rgba(74,222,128,.08)' : 'rgba(251,191,36,.08)')}
               onMouseLeave={e=>(e.currentTarget.style.background='transparent')}
             >⚡ Connect Fyers</button>
           </a>
