@@ -82,6 +82,7 @@ export default function ThetaDash() {
   const [expandedPos, setExpandedPos] = useState<string | null>(null);
   const [toasts, setToasts]       = useState<{id:string;msg:string;type:'ok'|'err'}[]>([]);
   const [streamStatus, setStreamStatus] = useState<'connecting'|'live'|'error'>('connecting');
+  const [checkingConn, setCheckingConn] = useState(false);
   const esRef  = useRef<EventSource | null>(null);
   const posRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -89,6 +90,25 @@ export default function ThetaDash() {
     const id = Math.random().toString(36).slice(2);
     setToasts(t => [...t, {id, msg, type}]);
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3500);
+  };
+
+  const testConnection = async () => {
+    setCheckingConn(true);
+    try {
+      const r = await fetch('/api/fyers/ping');
+      const json = await r.json();
+      if (json.success) {
+        addToast(`Fyers connection valid: ${json.name || json.clientCode}`);
+        setAuthError(null);
+        fetchLive();
+      } else {
+        addToast(`Connection failed: ${json.error}`, 'err');
+      }
+    } catch (err) {
+      addToast(`Connection failed: ${String(err)}`, 'err');
+    } finally {
+      setCheckingConn(false);
+    }
   };
 
   const fetchPos = useCallback(async () => {
@@ -298,6 +318,23 @@ export default function ThetaDash() {
               onMouseLeave={e=>(e.currentTarget.style.background='transparent')}
             >⚡ Connect Fyers</button>
           </a>
+          <button style={{
+            background: 'transparent',
+            border: '1px solid #1e2d3d',
+            color: '#8aa4b8',
+            fontFamily: 'inherit',
+            fontSize: 10,
+            padding: '6px 12px',
+            cursor: 'pointer',
+            textTransform: 'uppercase',
+            letterSpacing: '.08em',
+            transition: 'all .15s'
+          }}
+            onMouseEnter={e=>(e.currentTarget.style.background='rgba(138,164,184,.08)')}
+            onMouseLeave={e=>(e.currentTarget.style.background='transparent')}
+            onClick={testConnection}
+            disabled={checkingConn}
+          >{checkingConn ? 'Checking…' : '🔍 Test Conn'}</button>
           <div style={{fontSize:10,color:'#4a6070'}}>↻ {lastTick||'—'}</div>
         </div>
       </div>
@@ -324,11 +361,16 @@ export default function ThetaDash() {
                 System Error: {authError}
               </div>
             )}
-            <a href="/fyers-login" style={{textDecoration:'none'}}>
-              <button className="btn btng" style={{fontSize:12,padding:'12px 24px',fontWeight:600}}>
-                ⚡ Connect Fyers Account
+            <div style={{display:'flex',gap:12,justifyContent:'center'}}>
+              <a href="/fyers-login" style={{textDecoration:'none'}}>
+                <button className="btn btng" style={{fontSize:12,padding:'12px 24px',fontWeight:600}}>
+                  ⚡ Connect Fyers Account
+                </button>
+              </a>
+              <button className="btn" onClick={testConnection} disabled={checkingConn} style={{fontSize:12,padding:'12px 24px'}}>
+                {checkingConn ? 'Checking…' : '🔍 Test Connection'}
               </button>
-            </a>
+            </div>
           </div>
         ) : loading ? (
           <div style={{textAlign:'center',padding:80,color:'#4a6070'}}>Loading market data…</div>
