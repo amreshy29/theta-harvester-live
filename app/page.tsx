@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { generateStrategySignals, classifyVixRegime } from '@/lib/signals';
 
 interface QuoteData {
   symbol: string; ltp: number; open: number; high: number; low: number;
@@ -167,7 +168,17 @@ export default function ThetaDash() {
         const quotes = prev.quotes.map(q =>
           q.symbol === tick.symbol ? { ...q, ...tick } : q
         );
-        return { ...prev, quotes, timestamp: new Date().toISOString() };
+        const nextSignals = generateStrategySignals(quotes);
+        const nextVix = quotes.find(q => q.symbol === 'NSE:INDIA VIX-INDEX')?.ltp || 15;
+        const nextRegime = classifyVixRegime(nextVix);
+        return {
+          ...prev,
+          quotes,
+          signals: nextSignals,
+          vix: nextVix,
+          regime: nextRegime,
+          timestamp: new Date().toISOString(),
+        };
       });
     });
 

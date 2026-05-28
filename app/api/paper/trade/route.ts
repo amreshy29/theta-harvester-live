@@ -1,6 +1,7 @@
 // app/api/paper/trade/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { paperEngine } from '@/lib/paperEngine';
+import { fetchQuotes } from '@/lib/fyers';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,8 +28,19 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
+  try {
+    const quotes = await fetchQuotes(['NSE:NIFTY50-INDEX']);
+    const nifty = quotes.find(q => q.symbol === 'NSE:NIFTY50-INDEX');
+    if (nifty) {
+      paperEngine.tickAllPositions(nifty.changePct);
+    }
+  } catch (error) {
+    // Ignore quote fetch error, fallback to returning current positions
+  }
+
   const positions = paperEngine.getPositions();
   const trades = paperEngine.getTrades();
   const stats = paperEngine.getPortfolioStats();
   return NextResponse.json({ success: true, positions, trades, stats });
 }
+
