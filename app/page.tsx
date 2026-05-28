@@ -48,10 +48,11 @@ interface ApiResponse {
   isSimulated: boolean; timestamp: string;
 }
 
-const fmt = (n: number, dec = 0) =>
-  n == null ? '—' : n.toLocaleString('en-IN', { minimumFractionDigits: dec, maximumFractionDigits: dec });
-const fmtRs = (n: number) => `${fmt(Math.abs(n))}`;
-const pct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+const safe = (n: number | undefined | null): number => (n == null || isNaN(n as number) ? 0 : n as number);
+const fmt = (n: number | undefined | null, dec = 0) =>
+  n == null ? '—' : safe(n).toLocaleString('en-IN', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+const fmtRs = (n: number | undefined | null) => `${fmt(Math.abs(safe(n)))}`;
+const pct = (n: number | undefined | null) => { const v = safe(n); return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`; };
 
 const RC: Record<string, { color: string; bg: string; border: string; label: string }> = {
   NORMAL:   { color: '#4ade80', bg: 'rgba(74,222,128,0.07)',  border: 'rgba(74,222,128,0.25)',  label: 'NORMAL' },
@@ -227,12 +228,12 @@ export default function ThetaDash() {
                 {[
                   {l:'Capital',v:`₹${fmt(stats.capital)}`,c:'#e8b86d'},
                   {l:'Cash Available',v:`₹${fmt(stats.cash)}`,c:'#60a5fa'},
-                  {l:'Portfolio Heat',v:`${stats.portfolioHeat.toFixed(1)}%`,c:stats.portfolioHeat>60?'#f87171':'#fbbf24'},
+                  {l:'Portfolio Heat',v:`${safe(stats.portfolioHeat).toFixed(1)}%`,c:safe(stats.portfolioHeat)>60?'#f87171':'#fbbf24'},
                   {l:'Daily Theta',v:`₹${fmt(stats.dailyTheta,0)}`,c:'#4ade80'},
-                  {l:'Monthly Return',v:pct(stats.monthlyReturn),c:stats.monthlyReturn>=0?'#4ade80':'#f87171'},
-                  {l:'Win Rate',v:`${stats.winRate.toFixed(0)}%`,c:stats.winRate>=60?'#4ade80':'#fbbf24'},
-                  {l:'Max Drawdown',v:`${stats.maxDrawdown.toFixed(1)}%`,c:stats.maxDrawdown>10?'#f87171':'#8aa4b8'},
-                  {l:'Expectancy',v:`₹${fmt(stats.expectancy,0)}`,c:stats.expectancy>=0?'#4ade80':'#f87171'},
+                  {l:'Monthly Return',v:pct(stats.monthlyReturn),c:safe(stats.monthlyReturn)>=0?'#4ade80':'#f87171'},
+                  {l:'Win Rate',v:`${safe(stats.winRate).toFixed(0)}%`,c:safe(stats.winRate)>=60?'#4ade80':'#fbbf24'},
+                  {l:'Max Drawdown',v:`${safe(stats.maxDrawdown).toFixed(1)}%`,c:safe(stats.maxDrawdown)>10?'#f87171':'#8aa4b8'},
+                  {l:'Expectancy',v:`₹${fmt(stats.expectancy,0)}`,c:safe(stats.expectancy)>=0?'#4ade80':'#f87171'},
                 ].map(s=>(
                   <div key={s.l} className="card" style={{position:'relative',overflow:'hidden'}}>
                     <div style={{position:'absolute',top:0,left:0,right:0,height:2,background:s.c,opacity:.6}}></div>
@@ -254,7 +255,7 @@ export default function ThetaDash() {
                       <div>
                         <div style={{fontSize:10,color:'#4a6070',textTransform:'uppercase',letterSpacing:'.1em'}}>{SYM[q.symbol]||q.symbol}</div>
                         <div style={{fontFamily:'Syne',fontSize:26,fontWeight:800,color:'#f0f4f8',lineHeight:1.1,marginTop:4}}>
-                          {isVix?q.ltp.toFixed(2):fmt(q.ltp,2)}
+                          {isVix ? safe(q.ltp).toFixed(2) : fmt(q.ltp,2)}
                         </div>
                       </div>
                       <div style={{textAlign:'right'}}>
@@ -267,7 +268,7 @@ export default function ThetaDash() {
                       <div><div style={{color:'#4a6070'}}>HIGH</div><div style={{color:'#4ade80'}}>{fmt(q.high,2)}</div></div>
                       <div><div style={{color:'#4a6070'}}>LOW</div><div style={{color:'#f87171'}}>{fmt(q.low,2)}</div></div>
                     </div>
-                    {!isVix&&q.volume>0&&<div style={{marginTop:8,fontSize:10,color:'#4a6070'}}>Vol: {(q.volume/1e6).toFixed(2)}M</div>}
+                    {!isVix&&safe(q.volume)>0&&<div style={{marginTop:8,fontSize:10,color:'#4a6070'}}>Vol: {(safe(q.volume)/1e6).toFixed(2)}M</div>}
                   </div>
                 );
               })}
@@ -328,16 +329,16 @@ export default function ThetaDash() {
                         <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}}>
                           {sig.legs.map((leg,i)=>(
                             <div key={i} style={{padding:'4px 10px',border:'1px solid #1e2d3d',fontSize:10,color:leg.action==='SELL'?'#f87171':'#4ade80'}}>
-                              {leg.action} {leg.optionType} {leg.strike} · ₹{leg.premium.toFixed(0)}
+                              {leg.action} {leg.optionType} {leg.strike} · ₹{safe(leg.premium).toFixed(0)}
                             </div>
                           ))}
                         </div>
                       )}
                       {!isAlert&&(
                         <div style={{display:'flex',gap:20,flexWrap:'wrap',fontSize:11}}>
-                          <span><span style={{color:'#4a6070'}}>Credit: </span><span style={{color:'#4ade80'}}>₹{sig.netCredit.toFixed(0)}</span></span>
-                          <span><span style={{color:'#4a6070'}}>Max Risk: </span><span style={{color:'#f87171'}}>₹{sig.maxRisk.toFixed(0)}</span></span>
-                          <span><span style={{color:'#4a6070'}}>Max Profit: </span><span style={{color:'#e8b86d'}}>₹{sig.maxProfit.toFixed(0)}</span></span>
+                          <span><span style={{color:'#4a6070'}}>Credit: </span><span style={{color:'#4ade80'}}>₹{safe(sig.netCredit).toFixed(0)}</span></span>
+                          <span><span style={{color:'#4a6070'}}>Max Risk: </span><span style={{color:'#f87171'}}>₹{safe(sig.maxRisk).toFixed(0)}</span></span>
+                          <span><span style={{color:'#4a6070'}}>Max Profit: </span><span style={{color:'#e8b86d'}}>₹{safe(sig.maxProfit).toFixed(0)}</span></span>
                           <span><span style={{color:'#4a6070'}}>Win Prob: </span><span style={{color:'#60a5fa'}}>{sig.probability}%</span></span>
                         </div>
                       )}
@@ -389,7 +390,7 @@ export default function ThetaDash() {
                           </div>
                           <div style={{textAlign:'right'}}>
                             <div style={{fontSize:9,color:'#4a6070',textTransform:'uppercase'}}>Net Credit</div>
-                            <div style={{fontSize:12,color:'#e8b86d'}}>₹{pos.netCredit.toFixed(0)}</div>
+                            <div style={{fontSize:12,color:'#e8b86d'}}>₹{safe(pos.netCredit).toFixed(0)}</div>
                           </div>
                           {isOpen&&<button className="btn btnr" style={{fontSize:10,padding:'5px 10px'}} onClick={e=>{e.stopPropagation();closePos(pos.id);}}>Close</button>}
                           <span style={{color:'#4a6070'}}>{exp?'▲':'▼'}</span>
@@ -398,8 +399,8 @@ export default function ThetaDash() {
                       {isOpen&&pos.maxProfit>0&&(
                         <div style={{marginTop:10}}>
                           <div style={{display:'flex',justifyContent:'space-between',fontSize:9,color:'#4a6070',marginBottom:3}}>
-                            <span>SL: −₹{pos.stopLossLevel.toFixed(0)}</span>
-                            <span style={{color:'#4ade80'}}>Target: +₹{pos.targetLevel.toFixed(0)}</span>
+                            <span>SL: −₹{safe(pos.stopLossLevel).toFixed(0)}</span>
+                            <span style={{color:'#4ade80'}}>Target: +₹{safe(pos.targetLevel).toFixed(0)}</span>
                           </div>
                           <div style={{height:4,background:'#111820',borderRadius:2,overflow:'hidden'}}>
                             <div style={{height:'100%',width:`${Math.min(100,Math.max(0,50+pnlPct/2))}%`,background:pnlPct>=0?'#4ade80':'#f87171',transition:'width .4s ease',borderRadius:2}}></div>
@@ -413,8 +414,8 @@ export default function ThetaDash() {
                             {pos.legs.map((leg,i)=>(
                               <div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:11,padding:'4px 0',borderBottom:'1px solid #111820'}}>
                                 <span style={{color:leg.action==='SELL'?'#f87171':'#4ade80'}}>{leg.action} {leg.optionType} {leg.strike}</span>
-                                <span style={{color:'#8aa4b8'}}>₹{leg.entryPremium.toFixed(1)}→₹{leg.currentPremium.toFixed(1)}</span>
-                                <span style={{color:leg.legPnl>=0?'#4ade80':'#f87171'}}>{leg.legPnl>=0?'+':'−'}₹{Math.abs(leg.legPnl).toFixed(0)}</span>
+                                <span style={{color:'#8aa4b8'}}>₹{safe(leg.entryPremium).toFixed(1)}→₹{safe(leg.currentPremium).toFixed(1)}</span>
+                                <span style={{color:safe(leg.legPnl)>=0?'#4ade80':'#f87171'}}>{safe(leg.legPnl)>=0?'+':'−'}₹{Math.abs(safe(leg.legPnl)).toFixed(0)}</span>
                               </div>
                             ))}
                           </div>
@@ -455,8 +456,8 @@ export default function ThetaDash() {
                         </td>
                         <td style={{padding:'9px 12px',color:'#c8d8e8'}}>{t.strategy}</td>
                         <td style={{padding:'9px 12px',color:'#8aa4b8'}}>{t.symbol}</td>
-                        <td style={{padding:'9px 12px',color:'#e8b86d'}}>₹{t.netCredit.toFixed(0)}</td>
-                        <td style={{padding:'9px 12px',color:t.pnl>=0?'#4ade80':'#f87171'}}>{t.pnl!==0?`${t.pnl>=0?'+':'−'}₹${Math.abs(t.pnl).toFixed(0)}`:'—'}</td>
+                        <td style={{padding:'9px 12px',color:'#e8b86d'}}>₹{safe(t.netCredit).toFixed(0)}</td>
+                        <td style={{padding:'9px 12px',color:safe(t.pnl)>=0?'#4ade80':'#f87171'}}>{t.pnl!==0?`${safe(t.pnl)>=0?'+':'−'}₹${Math.abs(safe(t.pnl)).toFixed(0)}`:'—'}</td>
                         <td style={{padding:'9px 12px'}}>
                           <span className="pill" style={{background:RC[t.regime]?.bg,border:`1px solid ${RC[t.regime]?.border}`,color:RC[t.regime]?.color}}>{t.regime}</span>
                         </td>
