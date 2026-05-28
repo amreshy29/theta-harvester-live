@@ -1,6 +1,6 @@
 // app/api/fyers/quote/route.ts
 import { NextResponse } from 'next/server';
-import { fetchQuotes, generateStrategySignals, classifyVixRegime, DEFAULT_WATCHLIST } from '@/lib/fyers';
+import { fetchQuotes, generateStrategySignals, classifyVixRegime, DEFAULT_WATCHLIST, isLive } from '@/lib/fyers';
 import { paperEngine } from '@/lib/paperEngine';
 
 export const dynamic = 'force-dynamic';
@@ -28,7 +28,7 @@ export async function GET() {
       regime,
       vix,
       portfolioStats,
-      isSimulated: !process.env.FYERS_ACCESS_TOKEN,
+      isSimulated: !isLive(),
       timestamp: new Date().toISOString(),
     });
   } catch (error) {

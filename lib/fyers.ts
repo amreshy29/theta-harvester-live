@@ -1,16 +1,31 @@
 // lib/fyers.ts
 // Fyers API v3 wrapper for server-side use
+// IMPORTANT: credentials are read at call-time (not module load)
+// so .env changes / Vercel re-deployments are picked up correctly.
 
-const FYERS_APP_ID = process.env.FYERS_APP_ID || '';
-const FYERS_ACCESS_TOKEN = process.env.FYERS_ACCESS_TOKEN || '';
 const FYERS_BASE_URL = 'https://api-t1.fyers.in/data';
-const FYERS_ORDER_URL = 'https://api-t2.fyers.in/api/v3';
+export const FYERS_ORDER_URL = 'https://api-t2.fyers.in/api/v3';
+
+/** Read credentials fresh on every call (works with Vercel env var updates). */
+export function getFyersCreds() {
+  return {
+    appId:       process.env.FYERS_APP_ID       || '',
+    accessToken: process.env.FYERS_ACCESS_TOKEN  || '',
+    appSecret:   process.env.FYERS_APP_SECRET    || '',
+  };
+}
 
 export function getFyersHeaders() {
+  const { appId, accessToken } = getFyersCreds();
   return {
-    'Authorization': `${FYERS_APP_ID}:${FYERS_ACCESS_TOKEN}`,
+    'Authorization': `${appId}:${accessToken}`,
     'Content-Type': 'application/json',
   };
+}
+
+export function isLive(): boolean {
+  const { appId, accessToken } = getFyersCreds();
+  return !!(appId && accessToken && accessToken !== 'your_access_token_here');
 }
 
 export interface QuoteData {
@@ -68,7 +83,7 @@ export const STRATEGY_UNIVERSE = [
 ];
 
 export async function fetchQuotes(symbols: string[]): Promise<QuoteData[]> {
-  if (!FYERS_APP_ID || !FYERS_ACCESS_TOKEN) {
+  if (!isLive()) {
     // Return simulated data for demo/testing
     return symbols.map(sym => generateSimulatedQuote(sym));
   }

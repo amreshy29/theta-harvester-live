@@ -195,6 +195,14 @@ export default function ThetaDash() {
               </div>
             </div>
           )}
+          {data?.isSimulated && (
+            <a href="/fyers-login" style={{textDecoration:'none'}}>
+              <button style={{background:'transparent',border:'1px solid rgba(232,184,109,.4)',color:'#e8b86d',fontFamily:'inherit',fontSize:10,padding:'6px 12px',cursor:'pointer',textTransform:'uppercase',letterSpacing:'.08em',transition:'all .15s'}}
+                onMouseEnter={e=>(e.currentTarget.style.background='rgba(232,184,109,.08)')}
+                onMouseLeave={e=>(e.currentTarget.style.background='transparent')}
+              >⚡ Connect Fyers</button>
+            </a>
+          )}
           <div style={{fontSize:10,color:'#4a6070'}}>↻ {lastTick||'—'}</div>
         </div>
       </div>
