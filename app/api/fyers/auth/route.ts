@@ -58,10 +58,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Fyers requires SHA-256("auth_code:secret_key")
+    // Fyers API v3: appIdHash = SHA-256(app_id + ":" + secret_key)
+    // This is a static credential hash — NOT the auth_code
     const appHash = crypto
       .createHash('sha256')
-      .update(`${auth_code}:${APP_SECRET}`)
+      .update(`${APP_ID}:${APP_SECRET}`)
       .digest('hex');
 
     const res = await fetch('https://api-t1.fyers.in/api/v3/validate-authcode', {
