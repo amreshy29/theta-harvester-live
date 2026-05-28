@@ -8,19 +8,13 @@ import crypto from 'crypto';
 const APP_ID     = process.env.FYERS_APP_ID     || '';
 const APP_SECRET = process.env.FYERS_APP_SECRET || '';
 
-// ── Determine redirect URI ─────────────────────────────────────────────────────
-// Priority: explicit env var → Vercel URL → request origin → localhost fallback
-// Whatever resolves here MUST be registered in the Fyers API dashboard.
-function getRedirectUri(origin?: string): string {
-  if (process.env.FYERS_REDIRECT_URI)  return process.env.FYERS_REDIRECT_URI;
-  if (process.env.NEXT_PUBLIC_APP_URL) return `${process.env.NEXT_PUBLIC_APP_URL}/fyers-login`;
-  if (process.env.VERCEL_URL)          return `https://${process.env.VERCEL_URL}/fyers-login`;
-  if (origin)                          return `${origin}/fyers-login`;
-  return 'http://localhost:3000/fyers-login';
-}
+// ── Redirect URI — must match EXACTLY what is registered in Fyers API dashboard ──
+const REDIRECT_URI =
+  process.env.FYERS_REDIRECT_URI ||
+  'https://theta-harvester-live.vercel.app/fyers-login';
 
 // ── GET: build + return the Fyers OAuth login URL ─────────────────────────────
-export async function GET(req: NextRequest) {
+export async function GET() {
   if (!APP_ID) {
     return NextResponse.json(
       { success: false, error: 'FYERS_APP_ID not set in environment' },
@@ -28,16 +22,14 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const redirectUri = getRedirectUri(req.nextUrl.origin);
-
   const authUrl =
     `https://api-t1.fyers.in/api/v3/generate-authcode` +
     `?client_id=${encodeURIComponent(APP_ID)}` +
-    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
     `&response_type=code` +
     `&state=theta_harvester`;
 
-  return NextResponse.json({ success: true, authUrl, appId: APP_ID, redirectUri });
+  return NextResponse.json({ success: true, authUrl, appId: APP_ID, redirectUri: REDIRECT_URI });
 }
 
 // ── POST: exchange auth_code → access_token ───────────────────────────────────
