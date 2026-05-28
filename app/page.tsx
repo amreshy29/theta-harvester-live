@@ -88,14 +88,6 @@ export default function ThetaDash() {
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3500);
   };
 
-  const fetchLive = useCallback(async () => {
-    try {
-      const r = await fetch('/api/fyers/quote', {cache:'no-store'});
-      const json: ApiResponse = await r.json();
-      if (json.success) { setData(json); setLastTick(new Date().toLocaleTimeString('en-IN')); }
-    } catch { /**/ } finally { setLoading(false); }
-  }, []);
-
   const fetchPos = useCallback(async () => {
     try {
       const r    = await fetch('/api/paper/trade');
@@ -104,7 +96,7 @@ export default function ThetaDash() {
     } catch { /**/ }
   }, []);
 
-  // Initial quote fetch (gives us signals + portfolioStats on first load)
+  // Initial quote fetch (signals + portfolioStats on first load, re-used on SSE error)
   const fetchLive = useCallback(async () => {
     try {
       const r    = await fetch('/api/fyers/quote', { cache: 'no-store' });
