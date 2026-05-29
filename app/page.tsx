@@ -66,7 +66,7 @@ const RC: Record<string, { color: string; bg: string; border: string; label: str
 const SYM: Record<string, string> = {
   'NSE:NIFTY50-INDEX': 'NIFTY 50',
   'NSE:NIFTYBANK-INDEX': 'BANKNIFTY',
-  'NSE:INDIA VIX-INDEX': 'INDIA VIX',
+  'NSE:INDIAVIX-INDEX': 'INDIA VIX',
   'NSE:FINNIFTY-INDEX': 'FINNIFTY',
 };
 
@@ -206,7 +206,7 @@ export default function ThetaDash() {
           q.symbol === tick.symbol ? { ...q, ...tick } : q
         );
         const nextSignals = generateStrategySignals(quotes);
-        const nextVix = quotes.find(q => q.symbol === 'NSE:INDIA VIX-INDEX')?.ltp || 15;
+        const nextVix = quotes.find(q => q.symbol === 'NSE:INDIAVIX-INDEX')?.ltp || 15;
         const nextRegime = classifyVixRegime(nextVix);
         return {
           ...prev,

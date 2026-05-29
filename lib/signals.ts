@@ -23,7 +23,7 @@ export interface QuoteData {
 export const DEFAULT_WATCHLIST = [
   'NSE:NIFTY50-INDEX',
   'NSE:NIFTYBANK-INDEX',
-  'NSE:INDIA VIX-INDEX',
+  'NSE:INDIAVIX-INDEX',
   'NSE:FINNIFTY-INDEX',
 ];
 
@@ -72,7 +72,7 @@ export function generateStrategySignals(quotes: QuoteData[]): ThetaSignal[] {
   const signals: ThetaSignal[] = [];
   const nifty = quotes.find(q => q.symbol === 'NSE:NIFTY50-INDEX');
   const banknifty = quotes.find(q => q.symbol === 'NSE:NIFTYBANK-INDEX');
-  const vixData = quotes.find(q => q.symbol === 'NSE:INDIA VIX-INDEX');
+  const vixData = quotes.find(q => q.symbol === 'NSE:INDIAVIX-INDEX');
   const vix = vixData?.ltp || 15;
   const regime = classifyVixRegime(vix);
 
