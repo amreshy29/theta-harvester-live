@@ -16,8 +16,8 @@
           "lotSize": 50,
           "quantity": 1,
           "entryPremium": 27,
-          "currentPremium": 1.305532588978237,
-          "legPnl": 1284.723370551088
+          "currentPremium": 1.4679587161965064,
+          "legPnl": 1276.6020641901746
         },
         {
           "action": "BUY",
@@ -27,8 +27,8 @@
           "lotSize": 50,
           "quantity": 1,
           "entryPremium": 8,
-          "currentPremium": 1.5269345604563098,
-          "legPnl": -323.65327197718454
+          "currentPremium": 0.18609642822566902,
+          "legPnl": -390.69517858871654
         },
         {
           "action": "SELL",
@@ -38,8 +38,8 @@
           "lotSize": 50,
           "quantity": 1,
           "entryPremium": 24,
-          "currentPremium": 0.7806038646342627,
-          "legPnl": 1160.9698067682868
+          "currentPremium": 0.943994402449365,
+          "legPnl": 1152.8002798775317
         },
         {
           "action": "BUY",
@@ -49,8 +49,8 @@
           "lotSize": 50,
           "quantity": 1,
           "entryPremium": 7,
-          "currentPremium": 0.20185166123849213,
-          "legPnl": -339.9074169380754
+          "currentPremium": 0.10633757707292331,
+          "legPnl": -344.6831211463538
         }
       ],
       "entryDate": "2026-05-28",
@@ -61,8 +61,8 @@
       "maxProfit": 1800,
       "probability": 68,
       "status": "OPEN",
-      "currentValue": 17.867511595884885,
-      "unrealizedPnl": 1782.1324884041148,
+      "currentValue": 105.97595566736398,
+      "unrealizedPnl": 1694.0240443326359,
       "realizedPnl": 0,
       "stopLossLevel": 3600,
       "targetLevel": 1260,
@@ -76,7 +76,10 @@
         "✅ Target (70% max profit) achieved: ₹1880",
         "✅ Target (70% max profit) achieved: ₹1869",
         "✅ Target (70% max profit) achieved: ₹1794",
-        "✅ Target (70% max profit) achieved: ₹1782"
+        "✅ Target (70% max profit) achieved: ₹1782",
+        "✅ Target (70% max profit) achieved: ₹1697",
+        "✅ Target (70% max profit) achieved: ₹1623",
+        "✅ Target (70% max profit) achieved: ₹1694"
       ],
       "tags": [
         "IRON_CONDOR",
