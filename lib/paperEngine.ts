@@ -1,5 +1,7 @@
 // lib/paperEngine.ts
-// In-memory paper trading engine with full P&L tracking
+// Persistent paper trading engine with full P&L tracking stored in db.json
+
+import { readDb, writeDb } from './db';
 
 export interface PaperPosition {
   id: string;
@@ -72,25 +74,16 @@ export interface PortfolioStats {
   portfolioHeat: number;  // % of capital at risk
 }
 
-// Singleton in-memory store (persists within serverless warm instances)
-// For production: replace with Redis/DB
 class PaperTradingEngine {
-  private positions: Map<string, PaperPosition> = new Map();
-  private trades: PaperTrade[] = [];
-  private capital = 500000; // ₹5 lakhs
-  private initialCapital = 500000;
-  private dailyPnl = 0;
-  private peakCapital = 500000;
-  private maxDrawdown = 0;
-
   getPortfolioStats(): PortfolioStats {
-    const openPositions = Array.from(this.positions.values()).filter(p => p.status === 'OPEN');
-    const closedPositions = Array.from(this.positions.values()).filter(p => p.status === 'CLOSED');
+    const db = readDb();
+    const openPositions = db.positions.filter(p => p.status === 'OPEN');
+    const closedPositions = db.positions.filter(p => p.status === 'CLOSED');
 
     const unrealizedPnl = openPositions.reduce((sum, p) => sum + p.unrealizedPnl, 0);
     const realizedPnl = closedPositions.reduce((sum, p) => sum + p.realizedPnl, 0);
     const deployed = openPositions.reduce((sum, p) => sum + p.maxRisk, 0);
-    const cash = this.capital - deployed;
+    const cash = db.capital - deployed;
 
     const wins = closedPositions.filter(p => p.realizedPnl > 0);
     const losses = closedPositions.filter(p => p.realizedPnl <= 0);
@@ -104,19 +97,22 @@ class PaperTradingEngine {
       return sum + p.netCredit / daysToExpiry * 0.3;
     }, 0);
 
-    const currentCapital = this.capital + unrealizedPnl + realizedPnl;
-    if (currentCapital > this.peakCapital) this.peakCapital = currentCapital;
-    const drawdown = ((this.peakCapital - currentCapital) / this.peakCapital) * 100;
-    this.maxDrawdown = Math.max(this.maxDrawdown, drawdown);
+    const currentCapital = db.capital + unrealizedPnl + realizedPnl;
+    if (currentCapital > db.peakCapital) {
+      db.peakCapital = currentCapital;
+    }
+    const drawdown = ((db.peakCapital - currentCapital) / db.peakCapital) * 100;
+    db.maxDrawdown = Math.max(db.maxDrawdown, drawdown);
+    writeDb(db); // Save updated peakCapital / maxDrawdown
 
-    const monthlyReturn = ((currentCapital - this.initialCapital) / this.initialCapital) * 100;
-    const portfolioHeat = (deployed / this.capital) * 100;
+    const monthlyReturn = ((currentCapital - db.initialCapital) / db.initialCapital) * 100;
+    const portfolioHeat = (deployed / db.capital) * 100;
 
     // Simplified Sharpe (using expectancy as proxy)
     const sharpeEstimate = avgLoss > 0 ? expectancy / avgLoss : 0;
 
     return {
-      capital: this.capital,
+      capital: db.capital,
       deployed,
       cash,
       totalPnl: unrealizedPnl + realizedPnl,
@@ -129,7 +125,7 @@ class PaperTradingEngine {
       avgWin,
       avgLoss,
       expectancy,
-      maxDrawdown: this.maxDrawdown,
+      maxDrawdown: db.maxDrawdown,
       dailyTheta,
       monthlyReturn,
       sharpeEstimate,
@@ -149,6 +145,7 @@ class PaperTradingEngine {
     probability: number;
     regime: string;
   }): PaperPosition {
+    const db = readDb();
     const now = new Date();
     const position: PaperPosition = {
       id: signal.id,
@@ -185,8 +182,8 @@ class PaperTradingEngine {
       regime: signal.regime,
     };
 
-    this.positions.set(position.id, position);
-    this.trades.push({
+    db.positions.push(position);
+    db.trades.push({
       id: `T-${Date.now()}`,
       positionId: position.id,
       action: 'OPEN',
@@ -199,15 +196,16 @@ class PaperTradingEngine {
       regime: signal.regime,
     });
 
+    writeDb(db);
     return position;
   }
 
   updatePositionPrices(positionId: string, priceMultiplier: number): PaperPosition | null {
-    const position = this.positions.get(positionId);
+    const db = readDb();
+    const position = db.positions.find(p => p.id === positionId);
     if (!position || position.status !== 'OPEN') return null;
 
-    // Simulate theta decay + price movement
-    const timeDecay = 0.995; // ~0.5% daily decay on option premiums
+    const timeDecay = 0.995; // ~0.5% daily decay
     let currentValue = 0;
 
     position.legs.forEach(leg => {
@@ -223,22 +221,25 @@ class PaperTradingEngine {
     position.currentValue = currentValue * (position.legs[0]?.lotSize || 50);
     position.unrealizedPnl = position.legs.reduce((sum, l) => sum + l.legPnl, 0);
 
-    // Check stop loss
     if (Math.abs(position.unrealizedPnl) >= position.stopLossLevel) {
-      position.notes.push(`⚠ Stop loss triggered at ₹${position.unrealizedPnl.toFixed(0)} P&L`);
+      if (!position.notes.some(n => n.includes('Stop loss triggered'))) {
+        position.notes.push(`⚠ Stop loss triggered at ₹${position.unrealizedPnl.toFixed(0)} P&L`);
+      }
     }
 
-    // Check target
     if (position.unrealizedPnl >= position.targetLevel) {
-      position.notes.push(`✅ Target (70% max profit) achieved: ₹${position.unrealizedPnl.toFixed(0)}`);
+      if (!position.notes.some(n => n.includes('Target achieved'))) {
+        position.notes.push(`✅ Target (70% max profit) achieved: ₹${position.unrealizedPnl.toFixed(0)}`);
+      }
     }
 
-    this.positions.set(positionId, position);
+    writeDb(db);
     return position;
   }
 
   closePosition(positionId: string, reason: string): PaperPosition | null {
-    const position = this.positions.get(positionId);
+    const db = readDb();
+    const position = db.positions.find(p => p.id === positionId);
     if (!position || position.status !== 'OPEN') return null;
 
     position.status = 'CLOSED';
@@ -246,7 +247,7 @@ class PaperTradingEngine {
     position.unrealizedPnl = 0;
     position.notes.push(`Closed: ${reason}`);
 
-    this.trades.push({
+    db.trades.push({
       id: `T-${Date.now()}`,
       positionId,
       action: 'CLOSE',
@@ -259,37 +260,71 @@ class PaperTradingEngine {
       regime: position.regime,
     });
 
-    this.positions.set(positionId, position);
+    writeDb(db);
     return position;
   }
 
   tickAllPositions(niftyChangePct: number): void {
+    const db = readDb();
     const multiplier = Math.abs(niftyChangePct) * 10;
-    Array.from(this.positions.values())
-      .filter(p => p.status === 'OPEN')
-      .forEach(p => this.updatePositionPrices(p.id, multiplier));
+    const timeDecay = 0.995;
+
+    db.positions.forEach(position => {
+      if (position.status !== 'OPEN') return;
+      let currentValue = 0;
+
+      position.legs.forEach(leg => {
+        const priceChange = (Math.random() - 0.5) * 0.1 * multiplier;
+        leg.currentPremium = Math.max(0.05, leg.currentPremium * (timeDecay + priceChange));
+        const signedPnl = leg.action === 'SELL'
+          ? (leg.entryPremium - leg.currentPremium) * leg.lotSize * leg.quantity
+          : (leg.currentPremium - leg.entryPremium) * leg.lotSize * leg.quantity;
+        leg.legPnl = signedPnl;
+        currentValue += leg.action === 'SELL' ? leg.currentPremium : -leg.currentPremium;
+      });
+
+      position.currentValue = currentValue * (position.legs[0]?.lotSize || 50);
+      position.unrealizedPnl = position.legs.reduce((sum, l) => sum + l.legPnl, 0);
+
+      if (Math.abs(position.unrealizedPnl) >= position.stopLossLevel) {
+        if (!position.notes.some(n => n.includes('Stop loss triggered'))) {
+          position.notes.push(`⚠ Stop loss triggered at ₹${position.unrealizedPnl.toFixed(0)} P&L`);
+        }
+      }
+
+      if (position.unrealizedPnl >= position.targetLevel) {
+        if (!position.notes.some(n => n.includes('Target achieved'))) {
+          position.notes.push(`✅ Target (70% max profit) achieved: ₹${position.unrealizedPnl.toFixed(0)}`);
+        }
+      }
+    });
+
+    writeDb(db);
   }
 
   getPositions(): PaperPosition[] {
-    return Array.from(this.positions.values()).sort((a, b) =>
+    const db = readDb();
+    return db.positions.sort((a, b) =>
       new Date(b.entryDate).getTime() - new Date(a.entryDate).getTime()
     );
   }
 
   getTrades(): PaperTrade[] {
-    return [...this.trades].reverse().slice(0, 50);
+    const db = readDb();
+    return [...db.trades].reverse().slice(0, 50);
   }
 
   reset(): void {
-    this.positions.clear();
-    this.trades = [];
-    this.capital = 500000;
-    this.initialCapital = 500000;
-    this.dailyPnl = 0;
-    this.peakCapital = 500000;
-    this.maxDrawdown = 0;
+    const DEFAULT_DB = {
+      capital: 500000,
+      initialCapital: 500000,
+      positions: [],
+      trades: [],
+      peakCapital: 500000,
+      maxDrawdown: 0
+    };
+    writeDb(DEFAULT_DB);
   }
 }
 
-// Global singleton
 export const paperEngine = new PaperTradingEngine();

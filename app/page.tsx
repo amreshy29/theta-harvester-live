@@ -1,6 +1,19 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { generateStrategySignals, classifyVixRegime } from '@/lib/signals';
+import dynamic from 'next/dynamic';
+
+// Dynamically import Recharts components to disable server-side rendering for them
+const ResponsiveContainer = dynamic(() => import('recharts').then(r => r.ResponsiveContainer), { ssr: false });
+const AreaChart = dynamic(() => import('recharts').then(r => r.AreaChart), { ssr: false });
+const Area = dynamic(() => import('recharts').then(r => r.Area), { ssr: false });
+const BarChart = dynamic(() => import('recharts').then(r => r.BarChart), { ssr: false });
+const Bar = dynamic(() => import('recharts').then(r => r.Bar), { ssr: false });
+const XAxis = dynamic(() => import('recharts').then(r => r.XAxis), { ssr: false });
+const YAxis = dynamic(() => import('recharts').then(r => r.YAxis), { ssr: false });
+const Tooltip = dynamic(() => import('recharts').then(r => r.Tooltip), { ssr: false });
+const CartesianGrid = dynamic(() => import('recharts').then(r => r.CartesianGrid), { ssr: false });
+const Cell = dynamic(() => import('recharts').then(r => r.Cell), { ssr: false });
 
 interface QuoteData {
   symbol: string; ltp: number; open: number; high: number; low: number;
@@ -83,6 +96,12 @@ export default function ThetaDash() {
   const [toasts, setToasts]       = useState<{id:string;msg:string;type:'ok'|'err'}[]>([]);
   const [streamStatus, setStreamStatus] = useState<'connecting'|'live'|'error'>('connecting');
   const [checkingConn, setCheckingConn] = useState(false);
+  const [analytics, setAnalytics] = useState<{
+    equityCurve: any[];
+    strategyData: any[];
+    regimeData: any[];
+  } | null>(null);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const esRef  = useRef<EventSource | null>(null);
   const posRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -119,6 +138,21 @@ export default function ThetaDash() {
     } catch { /**/ }
   }, []);
 
+  const fetchAnalytics = useCallback(async () => {
+    setLoadingAnalytics(true);
+    try {
+      const r = await fetch('/api/paper/analytics');
+      const json = await r.json();
+      if (json.success) {
+        setAnalytics(json);
+      }
+    } catch (err) {
+      console.error('Failed to fetch analytics:', err);
+    } finally {
+      setLoadingAnalytics(false);
+    }
+  }, []);
+
   // Initial quote fetch (signals + portfolioStats on first load, re-used on SSE error)
   const fetchLive = useCallback(async () => {
     try {
@@ -150,7 +184,12 @@ export default function ThetaDash() {
         body: JSON.stringify({action:'OPEN', signal: sig}),
       });
       const json = await r.json();
-      if (json.success) { addToast(`Paper trade opened: ${sig.strategy} on ${sig.symbol}`); fetchPos(); setTab('positions'); }
+      if (json.success) {
+        addToast(`Paper trade opened: ${sig.strategy} on ${sig.symbol}`);
+        fetchPos();
+        fetchAnalytics();
+        setTab('positions');
+      }
       else addToast(`Error: ${json.error}`, 'err');
     } finally { setExecuting(null); }
   };
@@ -161,14 +200,26 @@ export default function ThetaDash() {
       body: JSON.stringify({action:'CLOSE', positionId:id, reason:'Manual close'}),
     });
     const json = await r.json();
-    if (json.success) { addToast(`Closed. P&L: ${json.position.realizedPnl>=0?'+':''}${fmtRs(json.position.realizedPnl)}`); fetchPos(); }
+    if (json.success) {
+      addToast(`Closed. P&L: ${json.position.realizedPnl>=0?'+':''}${fmtRs(json.position.realizedPnl)}`);
+      fetchPos();
+      fetchAnalytics();
+    }
   };
 
   const resetAcct = async () => {
     if (!confirm('Reset paper account to 5,00,000?')) return;
     await fetch('/api/paper/reset', {method:'POST'});
-    fetchPos(); addToast('Account reset to 5,00,000');
+    fetchPos();
+    fetchAnalytics();
+    addToast('Account reset to 5,00,000');
   };
+
+  useEffect(() => {
+    if (tab === 'journal') {
+      fetchAnalytics();
+    }
+  }, [tab, fetchAnalytics]);
 
   // ── SSE stream: real-time ticks from Fyers WebSocket (or simulated) ──────
   useEffect(() => {
@@ -588,38 +639,121 @@ export default function ThetaDash() {
 
         ) : (
           <div>
-            <div style={{fontFamily:'Syne',fontSize:14,fontWeight:700,color:'#e8b86d',marginBottom:16}}>Trade Journal</div>
+            <div style={{fontFamily:'Syne',fontSize:14,fontWeight:700,color:'#e8b86d',marginBottom:16}}>Trade Journal & Analytics</div>
+            
+            {loadingAnalytics && (
+              <div style={{color:'#4a6070', fontSize:11, marginBottom:16, fontFamily:'JetBrains Mono'}}>Updating analytics…</div>
+            )}
+
+            {/* Analytics Dashboard section */}
+            {analytics && (analytics.equityCurve.length > 1 || analytics.strategyData.length > 0) && (
+              <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(320px, 1fr))', gap:16, marginBottom:24}}>
+                {/* Equity Curve AreaChart */}
+                <div className="card">
+                  <div style={{fontFamily:'Syne',fontWeight:700,fontSize:12,textTransform:'uppercase',letterSpacing:'.1em',color:'#e8b86d',marginBottom:14}}>Equity Curve (Capital Growth)</div>
+                  <div style={{height:200, width:'100%'}}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={analytics.equityCurve} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="colorCapital" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#4ade80" stopOpacity={0.2}/>
+                            <stop offset="95%" stopColor="#4ade80" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#1e2d3d" />
+                        <XAxis dataKey="time" stroke="#4a6070" style={{fontSize:9, fontFamily:'JetBrains Mono'}} />
+                        <YAxis stroke="#4a6070" domain={['dataMin - 5000', 'dataMax + 5000']} style={{fontSize:9, fontFamily:'JetBrains Mono'}} tickFormatter={(v) => `₹${v/1000}k`} />
+                        <Tooltip contentStyle={{background:'#0d1219', borderColor:'#1e2d3d', color:'#c8d8e8', fontSize:11, fontFamily:'JetBrains Mono'}} formatter={(v) => [`₹${Number(v).toLocaleString('en-IN')}`, 'Portfolio Value']} />
+                        <Area type="monotone" dataKey="capital" stroke="#4ade80" fillOpacity={1} fill="url(#colorCapital)" strokeWidth={2} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Strategy P&L Chart */}
+                <div className="card">
+                  <div style={{fontFamily:'Syne',fontWeight:700,fontSize:12,textTransform:'uppercase',letterSpacing:'.1em',color:'#e8b86d',marginBottom:14}}>Strategy Performance (Net P&L)</div>
+                  <div style={{height:200, width:'100%'}}>
+                    {analytics.strategyData.length === 0 ? (
+                      <div style={{display:'flex', alignItems:'center', justifyContent:'center', height:'100%', color:'#4a6070', fontSize:11, fontFamily:'JetBrains Mono'}}>No strategy data yet.</div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={analytics.strategyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e2d3d" />
+                          <XAxis dataKey="name" stroke="#4a6070" style={{fontSize:9, fontFamily:'JetBrains Mono'}} />
+                          <YAxis stroke="#4a6070" style={{fontSize:9, fontFamily:'JetBrains Mono'}} tickFormatter={(v) => `₹${v}`} />
+                          <Tooltip contentStyle={{background:'#0d1219', borderColor:'#1e2d3d', color:'#c8d8e8', fontSize:11, fontFamily:'JetBrains Mono'}} formatter={(v) => [`₹${Number(v).toLocaleString('en-IN')}`, 'Net P&L']} />
+                          <Bar dataKey="pnl">
+                            {analytics.strategyData.map((entry: any, index: number) => (
+                              <Cell key={`cell-${index}`} fill={entry.pnl >= 0 ? '#4ade80' : '#f87171'} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </div>
+
+                {/* VIX Regime Win Rates Chart */}
+                <div className="card">
+                  <div style={{fontFamily:'Syne',fontWeight:700,fontSize:12,textTransform:'uppercase',letterSpacing:'.1em',color:'#e8b86d',marginBottom:14}}>Win Rate by VIX Regime</div>
+                  <div style={{height:200, width:'100%'}}>
+                    {analytics.regimeData.length === 0 ? (
+                      <div style={{display:'flex', alignItems:'center', justifyContent:'center', height:'100%', color:'#4a6070', fontSize:11, fontFamily:'JetBrains Mono'}}>No regime data yet.</div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={analytics.regimeData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#1e2d3d" />
+                          <XAxis dataKey="regime" stroke="#4a6070" style={{fontSize:9, fontFamily:'JetBrains Mono'}} />
+                          <YAxis stroke="#4a6070" domain={[0, 100]} style={{fontSize:9, fontFamily:'JetBrains Mono'}} tickFormatter={(v) => `${v}%`} />
+                          <Tooltip contentStyle={{background:'#0d1219', borderColor:'#1e2d3d', color:'#c8d8e8', fontSize:11, fontFamily:'JetBrains Mono'}} formatter={(v) => [`${v}%`, 'Win Rate']} />
+                          <Bar dataKey="winRate">
+                            {analytics.regimeData.map((entry: any, index: number) => (
+                              <Cell key={`cell-${index}`} fill={RC[entry.regime]?.color || '#60a5fa'} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {!trades.length ? (
-              <div style={{textAlign:'center',padding:60,color:'#4a6070'}}>No trades yet.</div>
+              <div style={{textAlign:'center',padding:60,color:'#4a6070'}}>No trades recorded yet. Open and close positions to populate the journal.</div>
             ) : (
-              <div style={{overflowX:'auto'}}>
-                <table style={{width:'100%',borderCollapse:'collapse'}}>
-                  <thead>
-                    <tr style={{borderBottom:'1px solid #1e2d3d'}}>
-                      {['Time','Action','Strategy','Symbol','Credit','P&L','Regime','Reason'].map(h=>(
-                        <th key={h} style={{padding:'8px 12px',textAlign:'left',fontSize:9,textTransform:'uppercase',letterSpacing:'.1em',color:'#4a6070',fontWeight:400}}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {trades.map(t=>(
-                      <tr key={t.id} style={{borderBottom:'1px solid rgba(30,45,61,.4)'}}>
-                        <td style={{padding:'9px 12px',fontSize:10,color:'#4a6070'}}>{new Date(t.timestamp).toLocaleTimeString('en-IN')}</td>
-                        <td style={{padding:'9px 12px'}}>
-                          <span className="pill" style={{background:t.action==='OPEN'?'rgba(74,222,128,.1)':'rgba(248,113,113,.1)',border:`1px solid ${t.action==='OPEN'?'rgba(74,222,128,.2)':'rgba(248,113,113,.2)'}`,color:t.action==='OPEN'?'#4ade80':'#f87171'}}>{t.action}</span>
-                        </td>
-                        <td style={{padding:'9px 12px',color:'#c8d8e8'}}>{t.strategy}</td>
-                        <td style={{padding:'9px 12px',color:'#8aa4b8'}}>{t.symbol}</td>
-                        <td style={{padding:'9px 12px',color:'#e8b86d'}}>₹{safe(t.netCredit).toFixed(0)}</td>
-                        <td style={{padding:'9px 12px',color:safe(t.pnl)>=0?'#4ade80':'#f87171'}}>{t.pnl!==0?`${safe(t.pnl)>=0?'+':'−'}₹${Math.abs(safe(t.pnl)).toFixed(0)}`:'—'}</td>
-                        <td style={{padding:'9px 12px'}}>
-                          <span className="pill" style={{background:RC[t.regime]?.bg,border:`1px solid ${RC[t.regime]?.border}`,color:RC[t.regime]?.color}}>{t.regime}</span>
-                        </td>
-                        <td style={{padding:'9px 12px',fontSize:10,color:'#4a6070',maxWidth:240,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.reason}</td>
+              <div>
+                <div style={{fontSize:11,color:'#8aa4b8',marginBottom:10,textTransform:'uppercase',letterSpacing:'.08em'}}>Trade Logs</div>
+                <div style={{overflowX:'auto'}}>
+                  <table style={{width:'100%',borderCollapse:'collapse'}}>
+                    <thead>
+                      <tr style={{borderBottom:'1px solid #1e2d3d'}}>
+                        {['Time','Action','Strategy','Symbol','Credit','P&L','Regime','Reason'].map(h=>(
+                          <th key={h} style={{padding:'8px 12px',textAlign:'left',fontSize:9,textTransform:'uppercase',letterSpacing:'.1em',color:'#4a6070',fontWeight:400}}>{h}</th>
+                        ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {trades.map(t=>(
+                        <tr key={t.id} style={{borderBottom:'1px solid rgba(30,45,61,.4)'}}>
+                          <td style={{padding:'9px 12px',fontSize:10,color:'#4a6070'}}>{new Date(t.timestamp).toLocaleTimeString('en-IN')}</td>
+                          <td style={{padding:'9px 12px'}}>
+                            <span className="pill" style={{background:t.action==='OPEN'?'rgba(74,222,128,.1)':'rgba(248,113,113,.1)',border:`1px solid ${t.action==='OPEN'?'rgba(74,222,128,.2)':'rgba(248,113,113,.2)'}`,color:t.action==='OPEN'?'#4ade80':'#f87171'}}>{t.action}</span>
+                          </td>
+                          <td style={{padding:'9px 12px',color:'#c8d8e8'}}>{t.strategy}</td>
+                          <td style={{padding:'9px 12px',color:'#8aa4b8'}}>{t.symbol}</td>
+                          <td style={{padding:'9px 12px',color:'#e8b86d'}}>₹{safe(t.netCredit).toFixed(0)}</td>
+                          <td style={{padding:'9px 12px',color:safe(t.pnl)>=0?'#4ade80':'#f87171'}}>{t.pnl!==0?`${safe(t.pnl)>=0?'+':'−'}₹${Math.abs(safe(t.pnl)).toFixed(0)}`:'—'}</td>
+                          <td style={{padding:'9px 12px'}}>
+                            <span className="pill" style={{background:RC[t.regime]?.bg,border:`1px solid ${RC[t.regime]?.border}`,color:RC[t.regime]?.color}}>{t.regime}</span>
+                          </td>
+                          <td style={{padding:'9px 12px',fontSize:10,color:'#4a6070',maxWidth:240,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.reason}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>
