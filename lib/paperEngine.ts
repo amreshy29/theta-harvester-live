@@ -1,57 +1,19 @@
 // lib/paperEngine.ts
-// Persistent paper trading engine with full P&L tracking stored in db.json
+// Asynchronous paper trading engine interfacing with dual-mode DAL (Supabase / db.json)
 
-import { readDb, writeDb } from './db';
-
-export interface PaperPosition {
-  id: string;
-  strategy: string;
-  symbol: string;
-  type: string;
-  legs: PaperLeg[];
-  entryDate: string;
-  entryTime: string;
-  expiry: string;
-  netCredit: number;       // Total credit received (positive = credit)
-  maxRisk: number;
-  maxProfit: number;
-  probability: number;
-  status: 'OPEN' | 'CLOSED' | 'EXPIRED' | 'STOPPED';
-  currentValue: number;    // Current cost to close
-  unrealizedPnl: number;
-  realizedPnl: number;
-  stopLossLevel: number;   // Exit at 2× premium for IC, 1.5× for spreads
-  targetLevel: number;     // Book profit at 70% of max profit
-  adjustmentCount: number;
-  notes: string[];
-  tags: string[];
-  regime: string;
-}
-
-export interface PaperLeg {
-  action: 'BUY' | 'SELL';
-  optionType: 'CE' | 'PE';
-  strike: number;
-  expiry: string;
-  lotSize: number;
-  quantity: number;
-  entryPremium: number;
-  currentPremium: number;
-  legPnl: number;
-}
-
-export interface PaperTrade {
-  id: string;
-  positionId: string;
-  action: 'OPEN' | 'CLOSE' | 'ADJUST';
-  strategy: string;
-  symbol: string;
-  netCredit: number;
-  pnl: number;
-  timestamp: string;
-  reason: string;
-  regime: string;
-}
+import {
+  getPortfolioState,
+  savePortfolioState,
+  getPositions as dbGetPositions,
+  addPosition as dbAddPosition,
+  updatePosition as dbUpdatePosition,
+  addTrade as dbAddTrade,
+  getTrades as dbGetTrades,
+  resetDatabase as dbResetDatabase,
+  PaperPosition,
+  PaperLeg,
+  PaperTrade
+} from './db';
 
 export interface PortfolioStats {
   capital: number;
@@ -71,48 +33,57 @@ export interface PortfolioStats {
   dailyTheta: number;
   monthlyReturn: number;
   sharpeEstimate: number;
-  portfolioHeat: number;  // % of capital at risk
+  portfolioHeat: number;
 }
 
 class PaperTradingEngine {
-  getPortfolioStats(): PortfolioStats {
-    const db = readDb();
-    const openPositions = db.positions.filter(p => p.status === 'OPEN');
-    const closedPositions = db.positions.filter(p => p.status === 'CLOSED');
+  async getPortfolioStats(demo: boolean): Promise<PortfolioStats> {
+    const state = await getPortfolioState(demo);
+    const positions = await dbGetPositions(demo);
+
+    const openPositions = positions.filter(p => p.status === 'OPEN');
+    // Closed positions are those whose statuses represent realized trades
+    const closedPositions = positions.filter(p => p.status !== 'OPEN' && p.status !== 'CANCELLED');
 
     const unrealizedPnl = openPositions.reduce((sum, p) => sum + p.unrealizedPnl, 0);
     const realizedPnl = closedPositions.reduce((sum, p) => sum + p.realizedPnl, 0);
     const deployed = openPositions.reduce((sum, p) => sum + p.maxRisk, 0);
-    const cash = db.capital - deployed;
+    const cash = state.capital - deployed;
 
     const wins = closedPositions.filter(p => p.realizedPnl > 0);
     const losses = closedPositions.filter(p => p.realizedPnl <= 0);
     const winRate = closedPositions.length > 0 ? (wins.length / closedPositions.length) * 100 : 0;
     const avgWin = wins.length > 0 ? wins.reduce((s, p) => s + p.realizedPnl, 0) / wins.length : 0;
     const avgLoss = losses.length > 0 ? Math.abs(losses.reduce((s, p) => s + p.realizedPnl, 0) / losses.length) : 0;
-    const expectancy = winRate / 100 * avgWin - (1 - winRate / 100) * avgLoss;
+    const expectancy = (winRate / 100) * avgWin - (1 - winRate / 100) * avgLoss;
 
     const dailyTheta = openPositions.reduce((sum, p) => {
       const daysToExpiry = Math.max(1, Math.ceil((new Date(p.expiry).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
-      return sum + p.netCredit / daysToExpiry * 0.3;
+      return sum + (p.netCredit / daysToExpiry) * 0.3;
     }, 0);
 
-    const currentCapital = db.capital + unrealizedPnl + realizedPnl;
-    if (currentCapital > db.peakCapital) {
-      db.peakCapital = currentCapital;
+    const currentCapital = state.capital + unrealizedPnl + realizedPnl;
+    let peakCapital = state.peakCapital;
+    if (currentCapital > peakCapital) {
+      peakCapital = currentCapital;
     }
-    const drawdown = ((db.peakCapital - currentCapital) / db.peakCapital) * 100;
-    db.maxDrawdown = Math.max(db.maxDrawdown, drawdown);
-    writeDb(db); // Save updated peakCapital / maxDrawdown
+    const drawdown = ((peakCapital - currentCapital) / peakCapital) * 100;
+    const maxDrawdown = Math.max(state.maxDrawdown, drawdown);
 
-    const monthlyReturn = ((currentCapital - db.initialCapital) / db.initialCapital) * 100;
-    const portfolioHeat = (deployed / db.capital) * 100;
+    // Persist peak capital and max drawdown updates
+    await savePortfolioState(demo, {
+      capital: state.capital,
+      initialCapital: state.initialCapital,
+      peakCapital,
+      maxDrawdown,
+    });
 
-    // Simplified Sharpe (using expectancy as proxy)
+    const monthlyReturn = ((currentCapital - state.initialCapital) / state.initialCapital) * 100;
+    const portfolioHeat = (deployed / state.capital) * 100;
     const sharpeEstimate = avgLoss > 0 ? expectancy / avgLoss : 0;
 
     return {
-      capital: db.capital,
+      capital: state.capital,
       deployed,
       cash,
       totalPnl: unrealizedPnl + realizedPnl,
@@ -125,7 +96,7 @@ class PaperTradingEngine {
       avgWin,
       avgLoss,
       expectancy,
-      maxDrawdown: db.maxDrawdown,
+      maxDrawdown,
       dailyTheta,
       monthlyReturn,
       sharpeEstimate,
@@ -133,7 +104,7 @@ class PaperTradingEngine {
     };
   }
 
-  openPosition(signal: {
+  async openPosition(demo: boolean, signal: {
     id: string;
     strategy: string;
     symbol: string;
@@ -144,8 +115,7 @@ class PaperTradingEngine {
     maxProfit: number;
     probability: number;
     regime: string;
-  }): PaperPosition {
-    const db = readDb();
+  }): Promise<PaperPosition> {
     const now = new Date();
     const position: PaperPosition = {
       id: signal.id,
@@ -182,8 +152,8 @@ class PaperTradingEngine {
       regime: signal.regime,
     };
 
-    db.positions.push(position);
-    db.trades.push({
+    await dbAddPosition(demo, position);
+    await dbAddTrade(demo, {
       id: `T-${Date.now()}`,
       positionId: position.id,
       action: 'OPEN',
@@ -196,13 +166,12 @@ class PaperTradingEngine {
       regime: signal.regime,
     });
 
-    writeDb(db);
     return position;
   }
 
-  updatePositionPrices(positionId: string, priceMultiplier: number): PaperPosition | null {
-    const db = readDb();
-    const position = db.positions.find(p => p.id === positionId);
+  async updatePositionPrices(demo: boolean, positionId: string, priceMultiplier: number): Promise<PaperPosition | null> {
+    const positions = await dbGetPositions(demo);
+    const position = positions.find(p => p.id === positionId);
     if (!position || position.status !== 'OPEN') return null;
 
     const timeDecay = 0.995; // ~0.5% daily decay
@@ -221,25 +190,57 @@ class PaperTradingEngine {
     position.currentValue = currentValue * (position.legs[0]?.lotSize || 50);
     position.unrealizedPnl = position.legs.reduce((sum, l) => sum + l.legPnl, 0);
 
+    // Automatically trigger Stop Loss limit exit
     if (Math.abs(position.unrealizedPnl) >= position.stopLossLevel) {
-      if (!position.notes.some(n => n.includes('Stop loss triggered'))) {
-        position.notes.push(`⚠ Stop loss triggered at ₹${position.unrealizedPnl.toFixed(0)} P&L`);
-      }
+      position.status = 'STOP_LOSS_HIT';
+      position.realizedPnl = position.unrealizedPnl;
+      position.unrealizedPnl = 0;
+      position.notes.push(`⚠ Stop loss triggered at ₹${position.realizedPnl.toFixed(0)} P&L`);
+
+      await dbUpdatePosition(demo, position);
+      await dbAddTrade(demo, {
+        id: `T-${Date.now()}`,
+        positionId: position.id,
+        action: 'CLOSE',
+        strategy: position.strategy,
+        symbol: position.symbol,
+        netCredit: position.netCredit,
+        pnl: position.realizedPnl,
+        timestamp: new Date().toISOString(),
+        reason: `Stop loss triggered automatically at stop limit level`,
+        regime: position.regime,
+      });
+    }
+    // Automatically trigger Target reached exit
+    else if (position.unrealizedPnl >= position.targetLevel) {
+      position.status = 'TARGET_HIT';
+      position.realizedPnl = position.unrealizedPnl;
+      position.unrealizedPnl = 0;
+      position.notes.push(`✅ Target achieved: ₹${position.realizedPnl.toFixed(0)}`);
+
+      await dbUpdatePosition(demo, position);
+      await dbAddTrade(demo, {
+        id: `T-${Date.now()}`,
+        positionId: position.id,
+        action: 'CLOSE',
+        strategy: position.strategy,
+        symbol: position.symbol,
+        netCredit: position.netCredit,
+        pnl: position.realizedPnl,
+        timestamp: new Date().toISOString(),
+        reason: `Target hit automatically at 70% of max profit`,
+        regime: position.regime,
+      });
+    } else {
+      await dbUpdatePosition(demo, position);
     }
 
-    if (position.unrealizedPnl >= position.targetLevel) {
-      if (!position.notes.some(n => n.includes('Target achieved'))) {
-        position.notes.push(`✅ Target (70% max profit) achieved: ₹${position.unrealizedPnl.toFixed(0)}`);
-      }
-    }
-
-    writeDb(db);
     return position;
   }
 
-  closePosition(positionId: string, reason: string): PaperPosition | null {
-    const db = readDb();
-    const position = db.positions.find(p => p.id === positionId);
+  async closePosition(demo: boolean, positionId: string, reason: string): Promise<PaperPosition | null> {
+    const positions = await dbGetPositions(demo);
+    const position = positions.find(p => p.id === positionId);
     if (!position || position.status !== 'OPEN') return null;
 
     position.status = 'CLOSED';
@@ -247,7 +248,8 @@ class PaperTradingEngine {
     position.unrealizedPnl = 0;
     position.notes.push(`Closed: ${reason}`);
 
-    db.trades.push({
+    await dbUpdatePosition(demo, position);
+    await dbAddTrade(demo, {
       id: `T-${Date.now()}`,
       positionId,
       action: 'CLOSE',
@@ -260,17 +262,43 @@ class PaperTradingEngine {
       regime: position.regime,
     });
 
-    writeDb(db);
     return position;
   }
 
-  tickAllPositions(niftyChangePct: number): void {
-    const db = readDb();
+  async cancelPosition(demo: boolean, positionId: string, reason: string): Promise<PaperPosition | null> {
+    const positions = await dbGetPositions(demo);
+    const position = positions.find(p => p.id === positionId);
+    if (!position || position.status !== 'OPEN') return null;
+
+    position.status = 'CANCELLED';
+    position.realizedPnl = 0;
+    position.unrealizedPnl = 0;
+    position.notes.push(`Cancelled: ${reason}`);
+
+    await dbUpdatePosition(demo, position);
+    await dbAddTrade(demo, {
+      id: `T-${Date.now()}`,
+      positionId,
+      action: 'CLOSE', // Log close trade record for journal tracking
+      strategy: position.strategy,
+      symbol: position.symbol,
+      netCredit: position.netCredit,
+      pnl: 0,
+      timestamp: new Date().toISOString(),
+      reason: `Cancelled: ${reason}`,
+      regime: position.regime,
+    });
+
+    return position;
+  }
+
+  async tickAllPositions(demo: boolean, niftyChangePct: number): Promise<void> {
+    const positions = await dbGetPositions(demo);
     const multiplier = Math.abs(niftyChangePct) * 10;
     const timeDecay = 0.995;
 
-    db.positions.forEach(position => {
-      if (position.status !== 'OPEN') return;
+    for (const position of positions) {
+      if (position.status !== 'OPEN') continue;
       let currentValue = 0;
 
       position.legs.forEach(leg => {
@@ -286,45 +314,72 @@ class PaperTradingEngine {
       position.currentValue = currentValue * (position.legs[0]?.lotSize || 50);
       position.unrealizedPnl = position.legs.reduce((sum, l) => sum + l.legPnl, 0);
 
-      if (Math.abs(position.unrealizedPnl) >= position.stopLossLevel) {
-        if (!position.notes.some(n => n.includes('Stop loss triggered'))) {
-          position.notes.push(`⚠ Stop loss triggered at ₹${position.unrealizedPnl.toFixed(0)} P&L`);
-        }
-      }
-
+      // Check Target achieved automatically during ticks
       if (position.unrealizedPnl >= position.targetLevel) {
-        if (!position.notes.some(n => n.includes('Target achieved'))) {
-          position.notes.push(`✅ Target (70% max profit) achieved: ₹${position.unrealizedPnl.toFixed(0)}`);
-        }
-      }
-    });
+        position.status = 'TARGET_HIT';
+        position.realizedPnl = position.unrealizedPnl;
+        position.unrealizedPnl = 0;
+        position.notes.push(`✅ Target achieved: ₹${position.realizedPnl.toFixed(0)}`);
 
-    writeDb(db);
+        await dbUpdatePosition(demo, position);
+        await dbAddTrade(demo, {
+          id: `T-${Date.now()}`,
+          positionId: position.id,
+          action: 'CLOSE',
+          strategy: position.strategy,
+          symbol: position.symbol,
+          netCredit: position.netCredit,
+          pnl: position.realizedPnl,
+          timestamp: new Date().toISOString(),
+          reason: `Target hit automatically at 70% of max profit`,
+          regime: position.regime,
+        });
+      }
+      // Check Stop Loss limit triggered during ticks
+      else if (Math.abs(position.unrealizedPnl) >= position.stopLossLevel) {
+        position.status = 'STOP_LOSS_HIT';
+        position.realizedPnl = position.unrealizedPnl;
+        position.unrealizedPnl = 0;
+        position.notes.push(`⚠ Stop loss triggered at ₹${position.realizedPnl.toFixed(0)} P&L`);
+
+        await dbUpdatePosition(demo, position);
+        await dbAddTrade(demo, {
+          id: `T-${Date.now()}`,
+          positionId: position.id,
+          action: 'CLOSE',
+          strategy: position.strategy,
+          symbol: position.symbol,
+          netCredit: position.netCredit,
+          pnl: position.realizedPnl,
+          timestamp: new Date().toISOString(),
+          reason: `Stop loss triggered automatically at stop limit level`,
+          regime: position.regime,
+        });
+      } else {
+        await dbUpdatePosition(demo, position);
+      }
+    }
   }
 
-  getPositions(): PaperPosition[] {
-    const db = readDb();
-    return db.positions.sort((a, b) =>
+  async getPositions(demo: boolean): Promise<PaperPosition[]> {
+    const pos = await dbGetPositions(demo);
+    return pos.sort((a, b) =>
       new Date(b.entryDate).getTime() - new Date(a.entryDate).getTime()
     );
   }
 
-  getTrades(): PaperTrade[] {
-    const db = readDb();
-    return [...db.trades].reverse().slice(0, 50);
+  async getTrades(demo: boolean): Promise<PaperTrade[]> {
+    const trades = await dbGetTrades(demo);
+    return trades.sort((a, b) =>
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    ).slice(0, 50);
   }
 
-  reset(): void {
-    const DEFAULT_DB = {
-      capital: 500000,
-      initialCapital: 500000,
-      positions: [],
-      trades: [],
-      peakCapital: 500000,
-      maxDrawdown: 0
-    };
-    writeDb(DEFAULT_DB);
+  async reset(demo: boolean): Promise<void> {
+    await dbResetDatabase(demo);
   }
 }
 
+// Global singleton
 export const paperEngine = new PaperTradingEngine();
+export type { PaperPosition, PaperLeg, PaperTrade };

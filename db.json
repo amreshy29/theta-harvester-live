@@ -16,8 +16,8 @@
           "lotSize": 50,
           "quantity": 1,
           "entryPremium": 27,
-          "currentPremium": 1.4679587161965064,
-          "legPnl": 1276.6020641901746
+          "currentPremium": 0.12021014790026778,
+          "legPnl": 1343.9894926049867
         },
         {
           "action": "BUY",
@@ -27,8 +27,8 @@
           "lotSize": 50,
           "quantity": 1,
           "entryPremium": 8,
-          "currentPremium": 0.18609642822566902,
-          "legPnl": -390.69517858871654
+          "currentPremium": 0.10103873043098473,
+          "legPnl": -394.94806347845076
         },
         {
           "action": "SELL",
@@ -38,8 +38,8 @@
           "lotSize": 50,
           "quantity": 1,
           "entryPremium": 24,
-          "currentPremium": 0.943994402449365,
-          "legPnl": 1152.8002798775317
+          "currentPremium": 0.060917867876699464,
+          "legPnl": 1196.954106606165
         },
         {
           "action": "BUY",
@@ -49,8 +49,8 @@
           "lotSize": 50,
           "quantity": 1,
           "entryPremium": 7,
-          "currentPremium": 0.10633757707292331,
-          "legPnl": -344.6831211463538
+          "currentPremium": 0.05,
+          "legPnl": -347.5
         }
       ],
       "entryDate": "2026-05-28",
@@ -61,8 +61,8 @@
       "maxProfit": 1800,
       "probability": 68,
       "status": "OPEN",
-      "currentValue": 105.97595566736398,
-      "unrealizedPnl": 1694.0240443326359,
+      "currentValue": 1.5044642672991257,
+      "unrealizedPnl": 1798.4955357327008,
       "realizedPnl": 0,
       "stopLossLevel": 3600,
       "targetLevel": 1260,
@@ -79,7 +79,64 @@
         "✅ Target (70% max profit) achieved: ₹1782",
         "✅ Target (70% max profit) achieved: ₹1697",
         "✅ Target (70% max profit) achieved: ₹1623",
-        "✅ Target (70% max profit) achieved: ₹1694"
+        "✅ Target (70% max profit) achieved: ₹1694",
+        "✅ Target (70% max profit) achieved: ₹1730",
+        "✅ Target (70% max profit) achieved: ₹1736",
+        "✅ Target (70% max profit) achieved: ₹1765",
+        "✅ Target (70% max profit) achieved: ₹1789",
+        "✅ Target (70% max profit) achieved: ₹1793",
+        "✅ Target (70% max profit) achieved: ₹1789",
+        "✅ Target (70% max profit) achieved: ₹1783",
+        "✅ Target (70% max profit) achieved: ₹1781",
+        "✅ Target (70% max profit) achieved: ₹1781",
+        "✅ Target (70% max profit) achieved: ₹1769",
+        "✅ Target (70% max profit) achieved: ₹1750",
+        "✅ Target (70% max profit) achieved: ₹1725",
+        "✅ Target (70% max profit) achieved: ₹1777",
+        "✅ Target (70% max profit) achieved: ₹1775",
+        "✅ Target (70% max profit) achieved: ₹1766",
+        "✅ Target (70% max profit) achieved: ₹1749",
+        "✅ Target (70% max profit) achieved: ₹1752",
+        "✅ Target (70% max profit) achieved: ₹1731",
+        "✅ Target (70% max profit) achieved: ₹1712",
+        "✅ Target (70% max profit) achieved: ₹1778",
+        "✅ Target (70% max profit) achieved: ₹1785",
+        "✅ Target (70% max profit) achieved: ₹1770",
+        "✅ Target (70% max profit) achieved: ₹1782",
+        "✅ Target (70% max profit) achieved: ₹1778",
+        "✅ Target (70% max profit) achieved: ₹1794",
+        "✅ Target (70% max profit) achieved: ₹1791",
+        "✅ Target (70% max profit) achieved: ₹1787",
+        "✅ Target (70% max profit) achieved: ₹1786",
+        "✅ Target (70% max profit) achieved: ₹1791",
+        "✅ Target (70% max profit) achieved: ₹1813",
+        "✅ Target (70% max profit) achieved: ₹1827",
+        "✅ Target (70% max profit) achieved: ₹1826",
+        "✅ Target (70% max profit) achieved: ₹1802",
+        "✅ Target (70% max profit) achieved: ₹1810",
+        "✅ Target (70% max profit) achieved: ₹1808",
+        "✅ Target (70% max profit) achieved: ₹1814",
+        "✅ Target (70% max profit) achieved: ₹1823",
+        "✅ Target (70% max profit) achieved: ₹1823",
+        "✅ Target (70% max profit) achieved: ₹1818",
+        "✅ Target (70% max profit) achieved: ₹1832",
+        "✅ Target (70% max profit) achieved: ₹1809",
+        "✅ Target (70% max profit) achieved: ₹1814",
+        "✅ Target (70% max profit) achieved: ₹1815",
+        "✅ Target (70% max profit) achieved: ₹1816",
+        "✅ Target (70% max profit) achieved: ₹1814",
+        "✅ Target (70% max profit) achieved: ₹1815",
+        "✅ Target (70% max profit) achieved: ₹1809",
+        "✅ Target (70% max profit) achieved: ₹1796",
+        "✅ Target (70% max profit) achieved: ₹1796",
+        "✅ Target (70% max profit) achieved: ₹1796",
+        "✅ Target (70% max profit) achieved: ₹1794",
+        "✅ Target (70% max profit) achieved: ₹1807",
+        "✅ Target (70% max profit) achieved: ₹1802",
+        "✅ Target (70% max profit) achieved: ₹1805",
+        "✅ Target (70% max profit) achieved: ₹1802",
+        "✅ Target (70% max profit) achieved: ₹1799",
+        "✅ Target (70% max profit) achieved: ₹1798"
       ],
       "tags": [
         "IRON_CONDOR",
@@ -806,6 +863,6 @@
       "regime": "CRUSHED"
     }
   ],
-  "peakCapital": 512862.1324884041,
+  "peakCapital": 512912.1064360101,
   "maxDrawdown": 0.36
 }

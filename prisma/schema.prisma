@@ -1,0 +1,83 @@
+// prisma/schema.prisma
+datasource db {
+  provider  = "postgresql"
+  url       = env("POSTGRES_PRISMA_URL")
+  directUrl = env("POSTGRES_URL_NON_POOLING")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Position {
+  id              String   @id
+  strategy        String
+  symbol          String
+  type            String
+  entryDate       String
+  entryTime       String
+  expiry          String
+  netCredit       Float
+  maxRisk         Float
+  maxProfit       Float
+  probability     Int
+  status          String   // 'OPEN' | 'TARGET_HIT' | 'STOP_LOSS_HIT' | 'CLOSED' | 'CANCELLED'
+  currentValue    Float
+  unrealizedPnl   Float
+  realizedPnl     Float
+  stopLossLevel   Float
+  targetLevel     Float
+  adjustmentCount Int      @default(0)
+  notes           String[]
+  tags            String[]
+  regime          String
+  legs            Leg[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("positions")
+}
+
+model Leg {
+  id             String   @id @default(uuid())
+  positionId     String
+  action         String   // 'BUY' | 'SELL'
+  optionType     String   // 'CE' | 'PE'
+  strike         Float
+  expiry         String
+  lotSize        Int
+  quantity       Int
+  entryPremium   Float
+  currentPremium Float
+  legPnl         Float
+  position       Position @relation(fields: [positionId], references: [id], onDelete: Cascade)
+
+  @@map("legs")
+}
+
+model Trade {
+  id         String   @id
+  positionId String
+  action     String   // 'OPEN' | 'CLOSE' | 'ADJUST'
+  strategy   String
+  symbol     String
+  netCredit  Float
+  pnl        Float
+  timestamp  DateTime @default(now())
+  reason     String
+  regime     String
+  createdAt  DateTime @default(now())
+
+  @@map("trades")
+}
+
+model PortfolioState {
+  id             Int      @id @default(1)
+  capital        Float    @default(500000)
+  initialCapital Float    @default(500000)
+  peakCapital    Float    @default(500000)
+  maxDrawdown    Float    @default(0)
+  updatedAt      DateTime @updatedAt
+
+  @@map("portfolio_state")
+}

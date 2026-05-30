@@ -1,13 +1,19 @@
 // app/api/paper/analytics/route.ts
-import { NextResponse } from 'next/server';
-import { readDb } from '@/lib/db';
+import { NextRequest, NextResponse } from 'next/server';
+import { getPositions, getTrades, getPortfolioState } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const db = readDb();
-    const closedPositions = db.positions.filter(p => p.status === 'CLOSED');
+    const demo = req.nextUrl.searchParams.get('demo') === 'true';
+
+    const state = await getPortfolioState(demo);
+    const positions = await getPositions(demo);
+    const trades = await getTrades(demo);
+
+    // Closed positions represent realized trades (CLOSED, TARGET_HIT, STOP_LOSS_HIT)
+    const closedPositions = positions.filter(p => p.status !== 'OPEN' && p.status !== 'CANCELLED');
 
     // 1. Equity Curve
     const equityCurve: { time: string; capital: number; pnl: number; strategy: string }[] = [];
@@ -15,17 +21,17 @@ export async function GET() {
     // Add initial state
     equityCurve.push({
       time: 'Start',
-      capital: db.initialCapital,
+      capital: state.initialCapital,
       pnl: 0,
       strategy: 'Initial Capital'
     });
 
-    let currentCapital = db.initialCapital;
+    let currentCapital = state.initialCapital;
     
     // Sort closed positions by close timestamp or entryDate
     const sortedClosed = [...closedPositions].sort((a, b) => {
-      const aClose = db.trades.find(t => t.positionId === a.id && t.action === 'CLOSE');
-      const bClose = db.trades.find(t => t.positionId === b.id && t.action === 'CLOSE');
+      const aClose = trades.find(t => t.positionId === a.id && t.action === 'CLOSE');
+      const bClose = trades.find(t => t.positionId === b.id && t.action === 'CLOSE');
       const aTime = aClose ? new Date(aClose.timestamp).getTime() : new Date(a.entryDate).getTime();
       const bTime = bClose ? new Date(bClose.timestamp).getTime() : new Date(b.entryDate).getTime();
       return aTime - bTime;
@@ -33,7 +39,7 @@ export async function GET() {
 
     sortedClosed.forEach(pos => {
       currentCapital += pos.realizedPnl;
-      const closeTrade = db.trades.find(t => t.positionId === pos.id && t.action === 'CLOSE');
+      const closeTrade = trades.find(t => t.positionId === pos.id && t.action === 'CLOSE');
       const timeStr = closeTrade 
         ? new Date(closeTrade.timestamp).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })
         : pos.entryDate;

@@ -1,12 +1,14 @@
 // app/api/fyers/quote/route.ts
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { fetchQuotes, generateStrategySignals, classifyVixRegime, DEFAULT_WATCHLIST, isLive } from '@/lib/fyers';
 import { paperEngine } from '@/lib/paperEngine';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const demo = req.nextUrl.searchParams.get('demo') === 'true';
+
     const quotes = await fetchQuotes(DEFAULT_WATCHLIST);
     const signals = generateStrategySignals(quotes);
 
@@ -16,10 +18,10 @@ export async function GET() {
 
     // Auto-tick paper positions with NIFTY price change
     if (nifty) {
-      paperEngine.tickAllPositions(nifty.changePct);
+      await paperEngine.tickAllPositions(demo, nifty.changePct);
     }
 
-    const portfolioStats = paperEngine.getPortfolioStats();
+    const portfolioStats = await paperEngine.getPortfolioStats(demo);
 
     return NextResponse.json({
       success: true,

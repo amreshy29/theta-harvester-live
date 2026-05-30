@@ -85,6 +85,7 @@ const SYM: Record<string, string> = {
 
 export default function ThetaDash() {
   const [tab, setTab] = useState<'live'|'signals'|'positions'|'journal'>('live');
+  const [isDemo, setIsDemo] = useState(false);
   const [data, setData] = useState<ApiResponse | null>(null);
   const [positions, setPositions] = useState<PaperPosition[]>([]);
   const [trades, setTrades] = useState<PaperTrade[]>([]);
@@ -104,6 +105,13 @@ export default function ThetaDash() {
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const esRef  = useRef<EventSource | null>(null);
   const posRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      setIsDemo(params.get('demo') === 'true');
+    }
+  }, []);
 
   const addToast = (msg: string, type: 'ok'|'err' = 'ok') => {
     const id = Math.random().toString(36).slice(2);
@@ -132,16 +140,18 @@ export default function ThetaDash() {
 
   const fetchPos = useCallback(async () => {
     try {
-      const r    = await fetch('/api/paper/trade');
+      const url = '/api/paper/trade' + (isDemo ? '?demo=true' : '');
+      const r    = await fetch(url);
       const json = await r.json();
       if (json.success) { setPositions(json.positions); setTrades(json.trades); }
     } catch { /**/ }
-  }, []);
+  }, [isDemo]);
 
   const fetchAnalytics = useCallback(async () => {
     setLoadingAnalytics(true);
     try {
-      const r = await fetch('/api/paper/analytics');
+      const url = '/api/paper/analytics' + (isDemo ? '?demo=true' : '');
+      const r = await fetch(url);
       const json = await r.json();
       if (json.success) {
         setAnalytics(json);
@@ -151,12 +161,13 @@ export default function ThetaDash() {
     } finally {
       setLoadingAnalytics(false);
     }
-  }, []);
+  }, [isDemo]);
 
   // Initial quote fetch (signals + portfolioStats on first load, re-used on SSE error)
   const fetchLive = useCallback(async () => {
     try {
-      const r    = await fetch('/api/fyers/quote', { cache: 'no-store' });
+      const url = '/api/fyers/quote' + (isDemo ? '?demo=true' : '');
+      const r    = await fetch(url, { cache: 'no-store' });
       const json: ApiResponse = await r.json();
       if (json.success) {
         setData(json);
@@ -173,15 +184,16 @@ export default function ThetaDash() {
     } catch (err) {
       setAuthError(String(err) || 'Failed to fetch market data.');
     } finally { setLoading(false); }
-  }, []);
+  }, [isDemo]);
 
   const execSignal = async (sig: ThetaSignal) => {
     if (!sig.legs.length) return;
     setExecuting(sig.id);
     try {
-      const r = await fetch('/api/paper/trade', {
+      const url = '/api/paper/trade' + (isDemo ? '?demo=true' : '');
+      const r = await fetch(url, {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({action:'OPEN', signal: sig}),
+        body: JSON.stringify({action:'OPEN', signal: sig, demo: isDemo}),
       });
       const json = await r.json();
       if (json.success) {
@@ -195,9 +207,10 @@ export default function ThetaDash() {
   };
 
   const closePos = async (id: string) => {
-    const r = await fetch('/api/paper/trade', {
+    const url = '/api/paper/trade' + (isDemo ? '?demo=true' : '');
+    const r = await fetch(url, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({action:'CLOSE', positionId:id, reason:'Manual close'}),
+      body: JSON.stringify({action:'CLOSE', positionId:id, reason:'Manual close', demo: isDemo}),
     });
     const json = await r.json();
     if (json.success) {
@@ -209,7 +222,8 @@ export default function ThetaDash() {
 
   const resetAcct = async () => {
     if (!confirm('Reset paper account to 5,00,000?')) return;
-    await fetch('/api/paper/reset', {method:'POST'});
+    const url = '/api/paper/reset' + (isDemo ? '?demo=true' : '');
+    await fetch(url, {method:'POST'});
     fetchPos();
     fetchAnalytics();
     addToast('Account reset to 5,00,000');
