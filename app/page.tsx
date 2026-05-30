@@ -91,7 +91,11 @@ const NIFTY_INDEX_META: Record<string, {desc:string;label:string;color:string;bg
 };
 
 export default function ThetaDash() {
-  const [tab, setTab] = useState<'live'|'signals'|'positions'|'journal'|'indices'>('live');
+  const [tab, setTab] = useState<'live'|'signals'|'positions'|'journal'|'indices'|'swing'>('live');
+  const [swingReport, setSwingReport] = useState<any | null>(null);
+  const [loadingSwing, setLoadingSwing] = useState(false);
+  const [activeSwingTab, setActiveSwingTab] = useState<'watchlist' | 'details' | 'portfolio' | 'avoid'>('watchlist');
+  const [selectedSwingStock, setSelectedSwingStock] = useState<string | null>(null);
   const [isDemo, setIsDemo] = useState(false);
   const [data, setData] = useState<ApiResponse | null>(null);
   const [positions, setPositions] = useState<PaperPosition[]>([]);
@@ -235,6 +239,55 @@ export default function ThetaDash() {
     fetchAnalytics();
     addToast('Account reset to 5,00,000');
   };
+
+  const fetchSwingScan = useCallback(async () => {
+    setLoadingSwing(true);
+    try {
+      const url = '/api/swing/scan' + (isDemo ? '?demo=true' : '');
+      const r = await fetch(url);
+      const json = await r.json();
+      if (json.success) {
+        setSwingReport(json);
+        if (json.watchlist?.length > 0 && !selectedSwingStock) {
+          setSelectedSwingStock(json.watchlist[0].symbol);
+        }
+      } else {
+        addToast(json.error || 'Failed to fetch swing scan results', 'err');
+      }
+    } catch (err) {
+      addToast('Failed to fetch swing scan results', 'err');
+    } finally {
+      setLoadingSwing(false);
+    }
+  }, [isDemo, selectedSwingStock]);
+
+  const runSwingScan = async () => {
+    setLoadingSwing(true);
+    try {
+      const url = '/api/swing/scan' + (isDemo ? '?demo=true' : '');
+      const r = await fetch(url, { method: 'POST' });
+      const json = await r.json();
+      if (json.success) {
+        setSwingReport(json);
+        addToast('Quantitative swing scan completed successfully!', 'ok');
+        if (json.watchlist?.length > 0) {
+          setSelectedSwingStock(json.watchlist[0].symbol);
+        }
+      } else {
+        addToast(json.error || 'Swing scan failed', 'err');
+      }
+    } catch (err) {
+      addToast('Swing scan request failed', 'err');
+    } finally {
+      setLoadingSwing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (tab === 'swing') {
+      fetchSwingScan();
+    }
+  }, [tab, fetchSwingScan]);
 
   useEffect(() => {
     if (tab === 'journal') {
@@ -418,6 +471,7 @@ export default function ThetaDash() {
         <button className={`tb ${tab==='positions'?'a':''}`} onClick={()=>setTab('positions')}>📂 Positions {openCount?`(${openCount})`:''}</button>
         <button className={`tb ${tab==='journal'?'a':''}`} onClick={()=>setTab('journal')}>📒 Journal</button>
         <button className={`tb ${tab==='indices'?'a':''}`} onClick={()=>setTab('indices')}>📊 Nifty Indices</button>
+        <button className={`tb ${tab==='swing'?'a':''}`} onClick={()=>setTab('swing')}>📈 Swing Trade</button>
       </div>
 
       {/* MAIN CONTENT */}
@@ -655,6 +709,467 @@ export default function ThetaDash() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+
+        ) : tab==='swing' ? (
+          <div>
+            {loadingSwing ? (
+              <div style={{textAlign:'center',padding:80,color:'#4a6070'}}>
+                <div style={{fontSize:24,marginBottom:12}}>⚡</div>
+                <div style={{color:'#e8b86d',fontSize:13}}>Executing Quantitative Swing Scan...</div>
+                <div style={{color:'#4a6070',fontSize:11,marginTop:8}}>Scanning Nifty 200 list & calculating multi-stage indicators via Fyers API</div>
+              </div>
+            ) : !swingReport ? (
+              <div className="card" style={{textAlign:'center',padding:60}}>
+                <div style={{fontSize:32,marginBottom:16}}>📈</div>
+                <div style={{fontFamily:'Syne',fontSize:18,fontWeight:700,color:'#e8b86d',marginBottom:12}}>Swing Trading Scanner & Analyst</div>
+                <p style={{color:'#8aa4b8',fontSize:13,lineHeight:1.7,maxWidth:600,margin:'0 auto 24px'}}>
+                  Identify high-probability weekly breakouts, volume expansions, and relative strength leaders across Nifty 200 / F&O universe.
+                </p>
+                <button className="btn btn-g" onClick={runSwingScan}>⚡ Run Scanner Now</button>
+              </div>
+            ) : (
+              <div className="fi">
+                {/* Scanner Header */}
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:20,flexWrap:'wrap',gap:16}}>
+                  <div>
+                    <div style={{fontFamily:'Syne',fontSize:16,fontWeight:800,color:'#e8b86d'}}>Professional Swing Trading Scanner & Analyst</div>
+                    <div style={{fontSize:10,color:'#4a6070',textTransform:'uppercase',letterSpacing:'.1em',marginTop:4}}>
+                      Stage 1-12 Rule-Based Model · Last Scan: {swingReport.scannedAt ? new Date(swingReport.scannedAt).toLocaleTimeString('en-IN') : 'Just now'} {swingReport.isCached ? '(Cached)' : '(Fresh)'}
+                    </div>
+                  </div>
+                  <button className="btn btn-g" onClick={runSwingScan} disabled={loadingSwing}>
+                    {loadingSwing ? 'Scanning…' : '⚡ Run Fresh Scan'}
+                  </button>
+                </div>
+
+                {/* STAGE 1: Market Environment Filter */}
+                <div className="card" style={{marginBottom:20,borderLeft:`3px solid ${RC[swingReport.marketSummary.status]?.color || '#60a5fa'}`}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,flexWrap:'wrap',gap:12}}>
+                    <div style={{fontFamily:'Syne',fontWeight:700,fontSize:12,textTransform:'uppercase',letterSpacing:'.1em',color:'#e8b86d'}}>Stage 1: Market Environment Filter</div>
+                    <span className="pill" style={{
+                      background: RC[swingReport.marketSummary.status]?.bg || 'rgba(96,165,250,.07)',
+                      border: `1px solid ${RC[swingReport.marketSummary.status]?.border || 'rgba(96,165,250,.2)'}`,
+                      color: RC[swingReport.marketSummary.status]?.color || '#60a5fa',
+                      fontWeight: 600,
+                      fontSize: 11
+                    }}>
+                      {swingReport.marketSummary.status}
+                    </span>
+                  </div>
+                  <p style={{fontSize:12,color:'#8aa4b8',margin:'0 0 14px 0',lineHeight:1.7}}>{swingReport.marketSummary.reasoning}</p>
+                  
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:12,fontSize:11}}>
+                    <div style={{padding:'8px 12px',background:'#070c10',border:'1px solid #1e2d3d'}}>
+                      <span style={{color:'#4a6070'}}>Nifty 50 Trend: </span>
+                      <span style={{color:'#c8d8e8',fontFamily:'monospace'}}>{swingReport.marketSummary.niftyStatus}</span>
+                    </div>
+                    <div style={{padding:'8px 12px',background:'#070c10',border:'1px solid #1e2d3d'}}>
+                      <span style={{color:'#4a6070'}}>Bank Nifty Trend: </span>
+                      <span style={{color:'#c8d8e8',fontFamily:'monospace'}}>{swingReport.marketSummary.bankNiftyStatus}</span>
+                    </div>
+                    <div style={{padding:'8px 12px',background:'#070c10',border:'1px solid #1e2d3d'}}>
+                      <span style={{color:'#4a6070'}}>Market Breadth: </span>
+                      <span style={{color:'#4ade80',fontWeight:600}}>{swingReport.marketSummary.breadthStatus}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sub tabs for swing */}
+                <div style={{display:'flex',gap:6,borderBottom:'1px solid #1e2d3d',marginBottom:16,paddingBottom:1,overflowX:'auto'}}>
+                  {[
+                    {id:'watchlist',label:'📋 Top Watchlist'},
+                    {id:'details',label:'🔍 Setup Analysis'},
+                    {id:'portfolio',label:'💼 Risk & Allocation'},
+                    {id:'avoid',label:'⚠️ Avoid List & Rules'},
+                  ].map(sb=>(
+                    <button key={sb.id} className={`tb ${activeSwingTab===sb.id?'a':''}`} onClick={()=>setActiveSwingTab(sb.id as any)} style={{fontSize:11,padding:'6px 14px'}}>
+                      {sb.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Sub Tab contents */}
+                {activeSwingTab === 'watchlist' && (
+                  <div className="card fi" style={{padding:0,overflowX:'auto'}}>
+                    <table style={{width:'100%',borderCollapse:'collapse',minWidth:800}}>
+                      <thead>
+                        <tr style={{borderBottom:'1px solid #1e2d3d',background:'rgba(30,45,61,0.2)'}}>
+                          {['Rank','Stock','Sector','Setup Type','Score','Suggested Entry','Stop Loss','Target 2R','Target 3R','Risk %','Action'].map(h=>(
+                            <th key={h} style={{padding:'10px 14px',textAlign:'left',fontSize:9,textTransform:'uppercase',letterSpacing:'.1em',color:'#4a6070',fontWeight:400}}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {swingReport.watchlist.map((st: any, idx: number) => {
+                          const isTop3 = idx < 3;
+                          const highlightBorder = isTop3 ? '3px solid #e8b86d' : '1px solid rgba(30,45,61,.4)';
+                          const setupBg = st.setup.includes('Weekly') ? 'rgba(74,222,128,.1)' : (st.setup.includes('VCP') ? 'rgba(167,139,250,.1)' : 'rgba(96,165,250,.1)');
+                          const setupBorder = st.setup.includes('Weekly') ? 'rgba(74,222,128,.25)' : (st.setup.includes('VCP') ? 'rgba(167,139,250,.25)' : 'rgba(96,165,250,.25)');
+                          const setupColor = st.setup.includes('Weekly') ? '#4ade80' : (st.setup.includes('VCP') ? '#a78bfa' : '#60a5fa');
+                          
+                          return (
+                            <tr key={st.symbol} style={{
+                              borderBottom:'1px solid rgba(30,45,61,.4)',
+                              borderLeft: highlightBorder,
+                              background: isTop3 ? 'rgba(232,184,109,0.02)' : 'transparent',
+                              cursor: 'pointer'
+                            }} onClick={() => {
+                              setSelectedSwingStock(st.symbol);
+                              setActiveSwingTab('details');
+                            }}>
+                              <td style={{padding:'12px 14px',fontFamily:'Syne',fontWeight:700,color:isTop3?'#e8b86d':'#4a6070'}}>
+                                {idx + 1} {isTop3 && <span style={{fontSize:8,background:'rgba(232,184,109,.15)',color:'#e8b86d',padding:'1px 4px',borderRadius:2,marginLeft:4}}>★</span>}
+                              </td>
+                              <td style={{padding:'12px 14px'}}>
+                                <div style={{fontFamily:'Syne',fontWeight:700,color:'#f0f4f8'}}>{st.symbol.split(':')[1]?.replace('-EQ','')}</div>
+                                <div style={{fontSize:10,color:'#4a6070'}}>{st.name}</div>
+                              </td>
+                              <td style={{padding:'12px 14px',color:'#8aa4b8'}}>{st.sector}</td>
+                              <td style={{padding:'12px 14px'}}>
+                                <span className="pill" style={{background:setupBg,border:`1px solid ${setupBorder}`,color:setupColor}}>{st.setup.split(': ')[1] || st.setup}</span>
+                              </td>
+                              <td style={{padding:'12px 14px',fontFamily:'monospace',fontWeight:600,color:st.scoring.total>=90?'#4ade80':(st.scoring.total>=80?'#fbbf24':'#8aa4b8')}}>
+                                {st.scoring.total}
+                              </td>
+                              <td style={{padding:'12px 14px',color:'#e8b86d',fontWeight:600}}>₹{fmt(st.atrRisk.suggestedEntry,1)}</td>
+                              <td style={{padding:'12px 14px',color:'#f87171'}}>₹{fmt(st.atrRisk.stopLoss,1)}</td>
+                              <td style={{padding:'12px 14px',color:'#4ade80'}}>₹{fmt(st.atrRisk.target2R,1)}</td>
+                              <td style={{padding:'12px 14px',color:'#60a5fa'}}>₹{fmt(st.atrRisk.target3R,1)}</td>
+                              <td style={{padding:'12px 14px',color:'#f87171',fontFamily:'monospace'}}>{st.atrRisk.riskPct.toFixed(1)}%</td>
+                              <td style={{padding:'12px 14px'}}>
+                                <button className="btn" style={{fontSize:8,padding:'4px 8px'}} onClick={(e)=>{
+                                  e.stopPropagation();
+                                  setSelectedSwingStock(st.symbol);
+                                  setActiveSwingTab('details');
+                                }}>View Setup</button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {activeSwingTab === 'details' && (
+                  <div style={{display:'grid',gridTemplateColumns:'200px 1fr',gap:16,alignItems:'flex-start'}}>
+                    {/* Left sidebar select */}
+                    <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                      <div style={{fontSize:9,color:'#4a6070',textTransform:'uppercase',letterSpacing:'.1em',paddingLeft:4,marginBottom:4}}>Scanned Leaders</div>
+                      {swingReport.watchlist.map((st: any) => {
+                        const isSelected = selectedSwingStock === st.symbol;
+                        return (
+                          <button key={st.symbol} onClick={()=>setSelectedSwingStock(st.symbol)} style={{
+                            padding:'10px 12px',
+                            background: isSelected ? '#1e2d3d' : '#0d1219',
+                            border: `1px solid ${isSelected ? '#e8b86d' : '#1e2d3d'}`,
+                            color: isSelected ? '#e8b86d' : '#8aa4b8',
+                            textAlign: 'left',
+                            fontFamily: 'Syne',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            fontSize: 11,
+                            transition: 'all .15s'
+                          }}>
+                            {st.symbol.split(':')[1]?.replace('-EQ','')}
+                            <div style={{fontSize:9,fontWeight:400,color:'#4a6070',fontFamily:'monospace',marginTop:2}}>Score: {st.scoring.total}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Right details content */}
+                    {(() => {
+                      const st = swingReport.watchlist.find((x: any) => x.symbol === selectedSwingStock) || swingReport.watchlist[0];
+                      if (!st) return <div className="card">No stock selected.</div>;
+                      const setupBg = st.setup.includes('Weekly') ? 'rgba(74,222,128,.1)' : (st.setup.includes('VCP') ? 'rgba(167,139,250,.1)' : 'rgba(96,165,250,.1)');
+                      const setupBorder = st.setup.includes('Weekly') ? 'rgba(74,222,128,.25)' : (st.setup.includes('VCP') ? 'rgba(167,139,250,.25)' : 'rgba(96,165,250,.25)');
+                      const setupColor = st.setup.includes('Weekly') ? '#4ade80' : (st.setup.includes('VCP') ? '#a78bfa' : '#60a5fa');
+                      
+                      return (
+                        <div className="card fi" style={{padding:24}}>
+                          {/* Stock Header */}
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',borderBottom:'1px solid #1e2d3d',paddingBottom:16,marginBottom:20}}>
+                            <div>
+                              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                                <span style={{fontFamily:'Syne',fontSize:20,fontWeight:800,color:'#f0f4f8'}}>{st.symbol.split(':')[1]?.replace('-EQ','')}</span>
+                                <span className="pill" style={{background:setupBg,border:`1px solid ${setupBorder}`,color:setupColor}}>{st.setup}</span>
+                              </div>
+                              <div style={{fontSize:11,color:'#8aa4b8',marginTop:4}}>{st.name} · Sector: {st.sector}</div>
+                            </div>
+                            <div style={{textAlign:'right'}}>
+                              <div style={{fontSize:9,color:'#4a6070',textTransform:'uppercase',letterSpacing:'.1em'}}>Technical Score</div>
+                              <div style={{fontFamily:'Syne',fontSize:24,fontWeight:800,color:st.scoring.total>=90?'#4ade80':(st.scoring.total>=80?'#fbbf24':'#8aa4b8')}}>{st.scoring.total} <span style={{fontSize:12,color:'#4a6070',fontWeight:400}}>/100</span></div>
+                            </div>
+                          </div>
+
+                          {/* Analysis details grids */}
+                          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))',gap:16,marginBottom:20}}>
+                            {/* Scoring Model Grid */}
+                            <div style={{padding:'14px 16px',background:'#070c10',border:'1px solid #1e2d3d'}}>
+                              <div style={{fontFamily:'Syne',fontWeight:700,fontSize:11,textTransform:'uppercase',letterSpacing:'.08em',color:'#e8b86d',marginBottom:12}}>Stage 9: Scoring Breakdown</div>
+                              {[
+                                {label:'Weekly Breakout (25)',val:st.scoring.weeklyBreakout,max:25},
+                                {label:'Trend Strength (20)',val:st.scoring.trendStrength,max:20},
+                                {label:'Relative Strength (20)',val:st.scoring.relativeStrength,max:20},
+                                {label:'Volume Expansion (15)',val:st.scoring.volumeExpansion,max:15},
+                                {label:'Risk Reward Ratios (10)',val:st.scoring.riskReward,max:10},
+                                {label:'Market Alignment (10)',val:st.scoring.marketAlignment,max:10},
+                              ].map(sc => (
+                                <div key={sc.label} style={{marginBottom:8}}>
+                                  <div style={{display:'flex',justifyContent:'space-between',fontSize:10,marginBottom:2}}>
+                                    <span style={{color:'#8aa4b8'}}>{sc.label}</span>
+                                    <span style={{color:'#c8d8e8',fontFamily:'monospace'}}>{sc.val}</span>
+                                  </div>
+                                  <div style={{height:4,background:'#1e2d3d',borderRadius:2}}>
+                                    <div style={{height:'100%',background:'#e8b86d',borderRadius:2,width:`${(sc.val/sc.max)*100}%`}}></div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Trend & Volume Analysis */}
+                            <div style={{padding:'14px 16px',background:'#070c10',border:'1px solid #1e2d3d',display:'flex',flexDirection:'column',gap:10}}>
+                              <div style={{fontFamily:'Syne',fontWeight:700,fontSize:11,textTransform:'uppercase',letterSpacing:'.08em',color:'#e8b86d',marginBottom:2}}>Stage 3 & 5: Trend & Volume</div>
+                              
+                              <div style={{display:'flex',justifyContent:'space-between',fontSize:11,paddingBottom:6,borderBottom:'1px solid #1e2d3d'}}>
+                                <span style={{color:'#4a6070'}}>Daily Moving Averages</span>
+                                <span style={{color:'#4ade80',fontWeight:600}}>{"20 > 50 > 200 EMA (OK)"}</span>
+                              </div>
+                              
+                              <div style={{display:'flex',justifyContent:'space-between',fontSize:10}}>
+                                <span style={{color:'#8aa4b8'}}>Close vs 20 / 50 / 200 EMA:</span>
+                                <span style={{color:'#c8d8e8'}}>₹{fmt(st.dailyTrend.ema20,0)} / ₹{fmt(st.dailyTrend.ema50,0)} / ₹{fmt(st.dailyTrend.ema200,0)}</span>
+                              </div>
+
+                              <div style={{display:'flex',justifyContent:'space-between',fontSize:11,paddingTop:6,paddingBottom:6,borderBottom:'1px solid #1e2d3d',borderTop:'1px solid #1e2d3d'}}>
+                                <span style={{color:'#4a6070'}}>Volume Ratio (20D Avg)</span>
+                                <span style={{
+                                  color: st.volumeAnalysis.rating==='Exceptional'?'#4ade80':(st.volumeAnalysis.rating==='Very Good'?'#fbbf24':'#60a5fa'),
+                                  fontWeight:600
+                                }}>
+                                  {st.volumeAnalysis.volumeRatio.toFixed(2)}x ({st.volumeAnalysis.rating})
+                                </span>
+                              </div>
+
+                              <p style={{fontSize:10,color:'#8aa4b8',lineHeight:1.6,margin:0}}>{st.volumeAnalysis.description}</p>
+                            </div>
+                          </div>
+
+                          {/* Relative strength, ATR and Next Day execution */}
+                          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))',gap:16,marginBottom:20}}>
+                            {/* Stage 4 Relative Strength */}
+                            <div style={{padding:'14px 16px',background:'#070c10',border:'1px solid #1e2d3d'}}>
+                              <div style={{fontFamily:'Syne',fontWeight:700,fontSize:11,textTransform:'uppercase',letterSpacing:'.08em',color:'#e8b86d',marginBottom:12}}>Stage 4: Relative Strength vs Nifty</div>
+                              
+                              <div style={{display:'flex',justifyContent:'space-between',fontSize:10,paddingBottom:4,borderBottom:'1px solid #1e2d3d',marginBottom:8}}>
+                                <span style={{color:'#4a6070'}}>Timeframe</span>
+                                <span style={{color:'#4a6070'}}>Stock Return vs Nifty</span>
+                                <span style={{color:'#4a6070'}}>Alpha</span>
+                              </div>
+
+                              {[
+                                {tf:'5 Day',stock:st.relativeStrength.perf5D,nifty:st.relativeStrength.nifty5D,alpha:st.relativeStrength.alpha5D},
+                                {tf:'20 Day',stock:st.relativeStrength.perf20D,nifty:st.relativeStrength.nifty20D,alpha:st.relativeStrength.alpha20D},
+                                {tf:'60 Day',stock:st.relativeStrength.perf60D,nifty:st.relativeStrength.nifty60D,alpha:st.relativeStrength.alpha60D},
+                              ].map(rs => (
+                                <div key={rs.tf} style={{display:'flex',justifyContent:'space-between',fontSize:10,marginBottom:6}}>
+                                  <span style={{color:'#8aa4b8'}}>{rs.tf}</span>
+                                  <span style={{color:'#c8d8e8'}}>{rs.stock.toFixed(1)}% vs {rs.nifty.toFixed(1)}%</span>
+                                  <span style={{color:rs.alpha>=0?'#4ade80':'#f87171',fontWeight:600}}>{rs.alpha>=0?'+':''}{rs.alpha.toFixed(1)}%</span>
+                                </div>
+                              ))}
+                              
+                              <div style={{display:'flex',justifyContent:'space-between',fontSize:11,marginTop:12,paddingTop:8,borderTop:'1px solid #1e2d3d'}}>
+                                <span style={{color:'#4a6070'}}>Relative Strength Rank</span>
+                                <span style={{color:'#4ade80',fontWeight:700}}>{st.relativeStrength.rank}</span>
+                              </div>
+                            </div>
+
+                            {/* Stage 7 ATR Risk Planning */}
+                            <div style={{padding:'14px 16px',background:'#070c10',border:'1px solid #1e2d3d'}}>
+                              <div style={{fontFamily:'Syne',fontWeight:700,fontSize:11,textTransform:'uppercase',letterSpacing:'.08em',color:'#e8b86d',marginBottom:12}}>Stage 7: ATR Risk Management</div>
+                              
+                              <div style={{display:'flex',flexDirection:'column',gap:8,fontSize:10}}>
+                                <div style={{display:'flex',justifyContent:'space-between'}}>
+                                  <span style={{color:'#8aa4b8'}}>Average True Range (ATR 14):</span>
+                                  <span style={{color:'#c8d8e8',fontFamily:'monospace'}}>₹{st.atrRisk.atr.toFixed(2)}</span>
+                                </div>
+                                <div style={{display:'flex',justifyContent:'space-between'}}>
+                                  <span style={{color:'#8aa4b8'}}>Suggested Entry:</span>
+                                  <span style={{color:'#e8b86d',fontWeight:600}}>₹{st.atrRisk.suggestedEntry.toFixed(2)}</span>
+                                </div>
+                                <div style={{display:'flex',justifyContent:'space-between'}}>
+                                  <span style={{color:'#8aa4b8'}}>ATR-Based Stop Loss (1.5 ATR):</span>
+                                  <span style={{color:'#f87171',fontWeight:600}}>₹{st.atrRisk.stopLoss.toFixed(2)}</span>
+                                </div>
+                                <div style={{display:'flex',justifyContent:'space-between',paddingBottom:4,borderBottom:'1px solid #1e2d3d'}}>
+                                  <span style={{color:'#8aa4b8'}}>1R Risk Distance:</span>
+                                  <span style={{color:'#f87171'}}>₹{st.atrRisk.risk1R.toFixed(2)} ({st.atrRisk.riskPct.toFixed(1)}%)</span>
+                                </div>
+                                <div style={{display:'flex',justifyContent:'space-between'}}>
+                                  <span style={{color:'#8aa4b8'}}>2R Target Level:</span>
+                                  <span style={{color:'#4ade80'}}>₹{st.atrRisk.target2R.toFixed(2)}</span>
+                                </div>
+                                <div style={{display:'flex',justifyContent:'space-between'}}>
+                                  <span style={{color:'#8aa4b8'}}>3R Target Level:</span>
+                                  <span style={{color:'#60a5fa'}}>₹{st.atrRisk.target3R.toFixed(2)}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Next day execution blueprint */}
+                          <div style={{padding:'16px 20px',background:'rgba(232,184,109,0.03)',border:'1px solid rgba(232,184,109,0.15)',marginBottom:20}}>
+                            <div style={{fontFamily:'Syne',fontWeight:700,fontSize:12,textTransform:'uppercase',letterSpacing:'.1em',color:'#e8b86d',marginBottom:12}}>Stage 8: Next-Day Execution Blueprint (9:45 AM)</div>
+                            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:14,fontSize:11,marginBottom:12}}>
+                              <div>
+                                <div style={{color:'#4a6070',marginBottom:4}}>ENTRY TRIGGER</div>
+                                <div style={{color:'#e8b86d',fontSize:14,fontWeight:700}}>₹{st.executionPlan.entryTrigger.toFixed(2)}</div>
+                              </div>
+                              <div>
+                                <div style={{color:'#4a6070',marginBottom:4}}>ENTRY ZONE</div>
+                                <div style={{color:'#c8d8e8',fontSize:13,fontWeight:600}}>{st.executionPlan.entryZone}</div>
+                              </div>
+                              <div>
+                                <div style={{color:'#4a6070',marginBottom:4}}>STOP LOSS (ATR)</div>
+                                <div style={{color:'#f87171',fontSize:13,fontWeight:600}}>₹{st.executionPlan.stopLoss.toFixed(2)}</div>
+                              </div>
+                              <div>
+                                <div style={{color:'#4a6070',marginBottom:4}}>TARGET LEVELS (1R / 2R / 3R)</div>
+                                <div style={{color:'#4ade80',fontSize:13,fontWeight:600}}>₹{st.executionPlan.target1.toFixed(0)} / ₹{st.executionPlan.target2.toFixed(0)} / ₹{st.executionPlan.target3.toFixed(0)}</div>
+                              </div>
+                            </div>
+
+                            <div style={{fontSize:11,color:'#8aa4b8',lineHeight:1.7,borderTop:'1px solid rgba(232,184,109,0.15)',paddingTop:10}}>
+                              <span style={{color:'#e8b86d',fontWeight:600}}>Risk Formula: </span>
+                              {st.executionPlan.positionSizeFormula}
+                              <br /><span style={{color:'#8aa4b8',fontWeight:600,display:'inline-block',marginTop:4}}>Execution Rules: </span> {st.executionPlan.specialNotes}
+                            </div>
+                          </div>
+
+                          {/* Expectation parameters */}
+                          <div style={{padding:'14px 16px',background:'#0d1219',border:'1px solid #1e2d3d'}}>
+                            <div style={{fontFamily:'Syne',fontWeight:700,fontSize:11,textTransform:'uppercase',letterSpacing:'.08em',color:'#e8b86d',marginBottom:12}}>Stage 12: Performance Expectation & Catalyst</div>
+                            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:10,fontSize:10,marginBottom:10}}>
+                              <div>
+                                <span style={{color:'#4a6070'}}>Holding Period: </span>
+                                <span style={{color:'#c8d8e8',fontWeight:600}}>{st.expectation.expectedHoldingPeriod}</span>
+                              </div>
+                              <div>
+                                <span style={{color:'#4a6070'}}>Probability Rating: </span>
+                                <span style={{color:'#4ade80',fontWeight:600}}>{st.expectation.probabilityRating}</span>
+                              </div>
+                              <div>
+                                <span style={{color:'#4a6070'}}>Risk Rating: </span>
+                                <span style={{color:'#fbbf24',fontWeight:600}}>{st.expectation.riskRating}</span>
+                              </div>
+                              <div>
+                                <span style={{color:'#4a6070'}}>Confidence Rating: </span>
+                                <span style={{color:'#4ade80',fontWeight:600}}>{st.expectation.confidenceRating}</span>
+                              </div>
+                            </div>
+                            <div style={{fontSize:10,color:'#8aa4b8',lineHeight:1.6}}>
+                              <span style={{color:'#e8b86d',fontWeight:600}}>Key Catalyst: </span>{st.expectation.catalyst}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {activeSwingTab === 'portfolio' && (
+                  <div className="card fi" style={{padding:20}}>
+                    <div style={{fontFamily:'Syne',fontWeight:700,fontSize:13,textTransform:'uppercase',letterSpacing:'.1em',color:'#e8b86d',marginBottom:8}}>Stage 11: Portfolio Allocation & Capital Risk Planner</div>
+                    <p style={{fontSize:12,color:'#8aa4b8',lineHeight:1.7,margin:'0 0 16px 0'}}>
+                      Risk management calculation assuming total capital of <strong style={{color:'#e8b86d'}}>₹5,00,000</strong>. Each swing trade is restricted to a maximum risk of <strong style={{color:'#f87171'}}>1% (₹5,000)</strong> of capital. Maximum concurrent open swing positions are capped at <strong style={{color:'#60a5fa'}}>5 positions</strong>, and sector exposure is capped at <strong style={{color:'#fbbf24'}}>30% (₹1,50,000)</strong> to prevent correlated sector drawdowns.
+                    </p>
+
+                    <div style={{overflowX:'auto'}}>
+                      <table style={{width:'100%',borderCollapse:'collapse',minWidth:760}}>
+                        <thead>
+                          <tr style={{borderBottom:'1px solid #1e2d3d',background:'rgba(30,45,61,0.2)'}}>
+                            {['Stock Symbol','Sector','Suggested Entry','Risk Per Share','Shares to Buy','Allocated Capital','Total Trade Risk','Sector limit status'].map(h=>(
+                              <th key={h} style={{padding:'10px 14px',textAlign:'left',fontSize:9,textTransform:'uppercase',letterSpacing:'.1em',color:'#4a6070',fontWeight:400}}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {swingReport.watchlist.map((st: any) => {
+                            const riskPerShare = st.atrRisk.risk1R;
+                            const positionSize = Math.floor(5000 / riskPerShare);
+                            const capitalAllocation = positionSize * st.atrRisk.suggestedEntry;
+                            const totalRisk = positionSize * riskPerShare;
+                            const sectorAllocated = swingReport.watchlist
+                              .filter((x: any) => x.sector === st.sector)
+                              .slice(0, 3)
+                              .reduce((s: number, x: any) => s + (Math.floor(5000 / x.atrRisk.risk1R) * x.atrRisk.suggestedEntry), 0);
+                            
+                            const sectorWarning = sectorAllocated > 150000;
+                            
+                            return (
+                              <tr key={st.symbol} style={{borderBottom:'1px solid rgba(30,45,61,.4)'}}>
+                                <td style={{padding:'12px 14px',fontFamily:'Syne',fontWeight:700,color:'#f0f4f8'}}>{st.symbol.split(':')[1]?.replace('-EQ','')}</td>
+                                <td style={{padding:'12px 14px',color:'#8aa4b8'}}>{st.sector}</td>
+                                <td style={{padding:'12px 14px',color:'#e8b86d',fontFamily:'monospace'}}>₹{fmt(st.atrRisk.suggestedEntry,1)}</td>
+                                <td style={{padding:'12px 14px',color:'#f87171',fontFamily:'monospace'}}>₹{fmt(riskPerShare,1)}</td>
+                                <td style={{padding:'12px 14px',fontWeight:600,color:'#c8d8e8',fontFamily:'monospace'}}>{positionSize}</td>
+                                <td style={{padding:'12px 14px',color:'#60a5fa',fontFamily:'monospace'}}>₹{fmt(capitalAllocation,0)}</td>
+                                <td style={{padding:'12px 14px',color:'#f87171',fontFamily:'monospace'}}>₹{fmt(totalRisk,0)}</td>
+                                <td style={{padding:'12px 14px'}}>
+                                  <span className="pill" style={{
+                                    background: sectorWarning ? 'rgba(248,113,113,.1)' : 'rgba(74,222,128,.1)',
+                                    border: `1px solid ${sectorWarning ? 'rgba(248,113,113,.25)' : 'rgba(74,222,128,.25)'}`,
+                                    color: sectorWarning ? '#f87171' : '#4ade80'
+                                  }}>
+                                    {sectorWarning ? 'Sector limit warning' : 'Safe'}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {activeSwingTab === 'avoid' && (
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,alignItems:'flex-start',flexWrap:'wrap'}}>
+                    {/* Stocks to avoid */}
+                    <div className="card fi" style={{padding:20}}>
+                      <div style={{fontFamily:'Syne',fontWeight:700,fontSize:13,textTransform:'uppercase',letterSpacing:'.1em',color:'#f87171',marginBottom:12}}>Filtered: Stocks to Avoid & Reasons</div>
+                      <div style={{display:'flex',flexDirection:'column',gap:12}}>
+                        {swingReport.stocksToAvoid.map((av: any) => (
+                          <div key={av.symbol} style={{padding:'10px 14px',background:'rgba(248,113,113,0.02)',border:'1px solid rgba(248,113,113,0.15)',display:'flex',gap:12}}>
+                            <span className="badge" style={{borderColor:'rgba(248,113,113,0.3)',background:'rgba(248,113,113,0.1)',color:'#f87171'}}>✕</span>
+                            <div>
+                              <div style={{fontFamily:'Syne',fontWeight:700,color:'#f87171'}}>{av.symbol.split(':')[1]?.replace('-EQ','')}</div>
+                              <div style={{fontSize:11,color:'#8aa4b8',lineHeight:1.5,marginTop:2}}>{av.reason}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Quantitative Swing Trading Guidelines */}
+                    <div className="card fi" style={{padding:20}}>
+                      <div style={{fontFamily:'Syne',fontWeight:700,fontSize:13,textTransform:'uppercase',letterSpacing:'.1em',color:'#e8b86d',marginBottom:12}}>Professional Watchlist Execution Rules</div>
+                      <ul style={{fontSize:12,color:'#8aa4b8',lineHeight:1.8,paddingLeft:20,margin:0}}>
+                        <li><strong style={{color:'#e8b86d'}}>9:45 AM Entry Rule:</strong> Never buy a stock in the first 15 minutes of the trade day. Allow initial morning volatility to settle.</li>
+                        <li><strong style={{color:'#e8b86d'}}>Minervini Trend Template:</strong> Trade only stocks with rising daily EMAs where {"20 > 50 > 200 EMA"} and price resides above 200 EMA.</li>
+                        <li><strong style={{color:'#e8b86d'}}>Relative Strength Focus:</strong> Prioritize leaders outperforming the index benchmark (positive alpha score). Sell weak performers immediately.</li>
+                        <li><strong style={{color:'#e8b86d'}}>1% Portfolio Risk limit:</strong> Capped trade risk at 1% of total portfolio value (₹5,000). Never override position sizes.</li>
+                        <li><strong style={{color:'#e8b86d'}}>Stop Loss Discipline:</strong> Place stop loss strictly on entry trigger, and use average true range (1.5x ATR) to establish stop margins.</li>
+                        <li><strong style={{color:'#e8b86d'}}>Sector Diversification:</strong> Maximum sector allocation limit is 30%. Prevent taking concentrated hits in single sectors.</li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

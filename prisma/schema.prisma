@@ -81,3 +81,11 @@ model PortfolioState {
 
   @@map("portfolio_state")
 }
+
+model SwingScan {
+  id        String   @id @default(uuid())
+  data      Json     // The JSON object containing the scan results
+  createdAt DateTime @default(now())
+
+  @@map("swing_scans")
+}
