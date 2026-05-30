@@ -83,8 +83,15 @@ const SYM: Record<string, string> = {
   'NSE:FINNIFTY-INDEX': 'FINNIFTY',
 };
 
+const NIFTY_INDEX_META: Record<string, {desc:string;label:string;color:string;bg:string;border:string}> = {
+  'NSE:NIFTY50-INDEX':   {desc:'Top 50 large-cap stocks · NSE',      label:'LARGE CAP', color:'#60a5fa',bg:'rgba(96,165,250,.07)',  border:'rgba(96,165,250,.2)'},
+  'NSE:NIFTYBANK-INDEX': {desc:'12 most liquid banking stocks · NSE', label:'BANKING',   color:'#e8b86d',bg:'rgba(232,184,109,.07)',border:'rgba(232,184,109,.2)'},
+  'NSE:INDIAVIX-INDEX':  {desc:'Implied volatility of NIFTY options', label:'VOLATILITY',color:'#f87171',bg:'rgba(248,113,113,.07)',border:'rgba(248,113,113,.2)'},
+  'NSE:FINNIFTY-INDEX':  {desc:'20 financial services stocks · NSE',  label:'FIN SVCS',  color:'#a78bfa',bg:'rgba(167,139,250,.07)',border:'rgba(167,139,250,.2)'},
+};
+
 export default function ThetaDash() {
-  const [tab, setTab] = useState<'live'|'signals'|'positions'|'journal'>('live');
+  const [tab, setTab] = useState<'live'|'signals'|'positions'|'journal'|'indices'>('live');
   const [isDemo, setIsDemo] = useState(false);
   const [data, setData] = useState<ApiResponse | null>(null);
   const [positions, setPositions] = useState<PaperPosition[]>([]);
@@ -410,6 +417,7 @@ export default function ThetaDash() {
         <button className={`tb ${tab==='signals'?'a':''}`} onClick={()=>setTab('signals')}>⚡ Signals {data?.signals?.length?`(${data.signals.length})`:''}</button>
         <button className={`tb ${tab==='positions'?'a':''}`} onClick={()=>setTab('positions')}>📂 Positions {openCount?`(${openCount})`:''}</button>
         <button className={`tb ${tab==='journal'?'a':''}`} onClick={()=>setTab('journal')}>📒 Journal</button>
+        <button className={`tb ${tab==='indices'?'a':''}`} onClick={()=>setTab('indices')}>📊 Nifty Indices</button>
       </div>
 
       {/* MAIN CONTENT */}
@@ -648,6 +656,219 @@ export default function ThetaDash() {
                   );
                 })}
               </div>
+            )}
+          </div>
+
+        ) : tab==='indices' ? (
+          <div>
+            <div style={{fontFamily:'Syne',fontSize:14,fontWeight:700,color:'#e8b86d',marginBottom:4}}>Nifty Indices — Live Overview</div>
+            <div style={{fontSize:10,color:'#4a6070',marginBottom:20,textTransform:'uppercase',letterSpacing:'.08em'}}>
+              Real-time data · NSE · {data?.timestamp ? new Date(data.timestamp).toLocaleTimeString('en-IN') : '—'}
+            </div>
+
+            {/* Summary comparison bar */}
+            {data?.quotes && data.quotes.length > 0 && (
+              <div className="card" style={{marginBottom:16}}>
+                <div style={{fontFamily:'Syne',fontWeight:700,fontSize:11,textTransform:'uppercase',letterSpacing:'.1em',color:'#e8b86d',marginBottom:14}}>Performance Snapshot (% Change)</div>
+                <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                  {data.quotes.map(q => {
+                    const isVix = q.symbol.includes('VIX');
+                    const pctVal = safe(q.changePct);
+                    const isPos = pctVal >= 0;
+                    const barColor = isVix
+                      ? (pctVal > 0 ? '#f87171' : '#4ade80')
+                      : (isPos ? '#4ade80' : '#f87171');
+                    const maxPct = 3;
+                    const barW = Math.min(100, (Math.abs(pctVal) / maxPct) * 50);
+                    return (
+                      <div key={q.symbol} style={{display:'flex',alignItems:'center',gap:12}}>
+                        <div style={{width:100,fontSize:10,color:'#8aa4b8',textTransform:'uppercase',letterSpacing:'.06em',flexShrink:0}}>{SYM[q.symbol]||q.symbol}</div>
+                        <div style={{flex:1,display:'flex',alignItems:'center',position:'relative',height:18}}>
+                          <div style={{position:'absolute',left:'50%',top:0,bottom:0,width:1,background:'#1e2d3d'}}></div>
+                          {isPos ? (
+                            <div style={{position:'absolute',left:'50%',height:10,top:4,width:`${barW}%`,background:barColor,opacity:.8,borderRadius:'0 2px 2px 0'}}></div>
+                          ) : (
+                            <div style={{position:'absolute',right:`${50}%`,height:10,top:4,width:`${barW}%`,background:barColor,opacity:.8,borderRadius:'2px 0 0 2px',transform:'translateX(100%)',marginLeft:0}}></div>
+                          )}
+                        </div>
+                        <div style={{width:70,textAlign:'right',fontSize:11,fontWeight:600,color:barColor,flexShrink:0}}>{pct(pctVal)}</div>
+                        <div style={{width:90,textAlign:'right',fontSize:11,color:'#f0f4f8',flexShrink:0}}>{isVix ? safe(q.ltp).toFixed(2) : fmt(q.ltp,2)}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Full index cards grid */}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:14,marginBottom:20}}>
+              {(data?.quotes || []).map(q => {
+                const isVix = q.symbol.includes('VIX');
+                const cc = q.changePct >= 0 ? '#4ade80' : '#f87171';
+                const vixCC = q.changePct >= 0 ? '#f87171' : '#4ade80';
+                const changeColor = isVix ? vixCC : cc;
+                const range = safe(q.high) - safe(q.low);
+                const rangePct = range > 0 ? ((safe(q.ltp) - safe(q.low)) / range) * 100 : 50;
+                const dayChangePct = q.open > 0 ? ((safe(q.ltp) - safe(q.open)) / safe(q.open)) * 100 : 0;
+                const su = NIFTY_INDEX_META[q.symbol];
+                return (
+                  <div key={q.symbol} className="card" style={{position:'relative',overflow:'hidden'}}>
+                    {/* top accent bar */}
+                    <div style={{position:'absolute',top:0,left:0,right:0,height:2,background:changeColor,opacity:.7}}></div>
+
+                    {/* Header */}
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
+                      <div>
+                        <div style={{fontSize:10,color:'#4a6070',textTransform:'uppercase',letterSpacing:'.12em',marginBottom:4}}>{SYM[q.symbol]||q.symbol}</div>
+                        {su && <div style={{fontSize:9,color:'#4a6070',marginBottom:6}}>{su.desc}</div>}
+                        <div style={{fontFamily:'Syne',fontSize:28,fontWeight:800,color:'#f0f4f8',lineHeight:1}}>
+                          {isVix ? safe(q.ltp).toFixed(2) : fmt(q.ltp,2)}
+                        </div>
+                      </div>
+                      <div style={{textAlign:'right'}}>
+                        <div style={{fontSize:16,fontWeight:700,color:changeColor}}>{pct(q.changePct)}</div>
+                        <div style={{fontSize:11,color:changeColor}}>{q.change >= 0 ? '+' : ''}{fmt(q.change,2)}</div>
+                        {su && (
+                          <div style={{marginTop:6,padding:'2px 8px',background:su.bg,border:`1px solid ${su.border}`,color:su.color,fontSize:9,letterSpacing:'.06em',textTransform:'uppercase',display:'inline-block'}}>{su.label}</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* OHLC grid */}
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:8,marginBottom:12,paddingBottom:12,borderBottom:'1px solid #1e2d3d'}}>
+                      {[
+                        {l:'OPEN', v:fmt(q.open,2), c:'#8aa4b8'},
+                        {l:'HIGH', v:fmt(q.high,2), c:'#4ade80'},
+                        {l:'LOW',  v:fmt(q.low,2),  c:'#f87171'},
+                        {l:'PREV', v:fmt(q.close,2),c:'#4a6070'},
+                      ].map(s=>(
+                        <div key={s.l}>
+                          <div style={{fontSize:8,color:'#4a6070',textTransform:'uppercase',letterSpacing:'.08em',marginBottom:2}}>{s.l}</div>
+                          <div style={{fontSize:11,color:s.c}}>{s.v}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Day range bar */}
+                    <div style={{marginBottom:12}}>
+                      <div style={{display:'flex',justifyContent:'space-between',fontSize:9,color:'#4a6070',marginBottom:4}}>
+                        <span>Day Range</span>
+                        <span style={{color:'#8aa4b8'}}>{fmt(q.low,2)} – {fmt(q.high,2)}</span>
+                      </div>
+                      <div style={{height:6,background:'#111820',borderRadius:3,overflow:'hidden',position:'relative'}}>
+                        <div style={{
+                          position:'absolute',
+                          left:`${Math.max(0,Math.min(95,rangePct))}%`,
+                          top:0,bottom:0,
+                          width:4,height:6,
+                          background:changeColor,
+                          transform:'translateX(-50%)',
+                          borderRadius:2,
+                          transition:'left .5s ease'
+                        }}></div>
+                        <div style={{height:'100%',background:`linear-gradient(90deg,#f87171 0%,${changeColor} ${rangePct}%,#1e2d3d ${rangePct}%)`}}></div>
+                      </div>
+                    </div>
+
+                    {/* Extra stats row */}
+                    <div style={{display:'flex',gap:16,fontSize:10,flexWrap:'wrap'}}>
+                      {!isVix && safe(q.volume) > 0 && (
+                        <div>
+                          <span style={{color:'#4a6070'}}>Vol </span>
+                          <span style={{color:'#8aa4b8'}}>{(safe(q.volume)/1e6).toFixed(2)}M</span>
+                        </div>
+                      )}
+                      <div>
+                        <span style={{color:'#4a6070'}}>From Open </span>
+                        <span style={{color:dayChangePct>=0?'#4ade80':'#f87171'}}>{dayChangePct>=0?'+':''}{dayChangePct.toFixed(2)}%</span>
+                      </div>
+                      {!isVix && q.oi != null && safe(q.oi) > 0 && (
+                        <div>
+                          <span style={{color:'#4a6070'}}>OI </span>
+                          <span style={{color:'#8aa4b8'}}>{(safe(q.oi)/1e5).toFixed(1)}L</span>
+                        </div>
+                      )}
+                      {isVix && (
+                        <div>
+                          <span style={{color:'#4a6070'}}>Regime </span>
+                          <span style={{color:RC[data?.regime||'NORMAL']?.color}}>{data?.regime||'—'}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Indices comparison table */}
+            {data?.quotes && data.quotes.length > 0 && (
+              <div className="card" style={{marginBottom:16,overflowX:'auto'}}>
+                <div style={{fontFamily:'Syne',fontWeight:700,fontSize:11,textTransform:'uppercase',letterSpacing:'.1em',color:'#e8b86d',marginBottom:14}}>Indices Comparison Table</div>
+                <table style={{width:'100%',borderCollapse:'collapse',minWidth:560}}>
+                  <thead>
+                    <tr style={{borderBottom:'1px solid #1e2d3d'}}>
+                      {['Index','LTP','Change','Chg %','Open','High','Low','Prev Close','Volume'].map(h=>(
+                        <th key={h} style={{padding:'8px 12px',textAlign:h==='Index'?'left':'right',fontSize:9,textTransform:'uppercase',letterSpacing:'.1em',color:'#4a6070',fontWeight:400}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.quotes.map(q => {
+                      const isVix = q.symbol.includes('VIX');
+                      const cc = q.changePct >= 0 ? '#4ade80' : '#f87171';
+                      const changeColor = isVix ? (q.changePct >= 0 ? '#f87171' : '#4ade80') : cc;
+                      return (
+                        <tr key={q.symbol} style={{borderBottom:'1px solid rgba(30,45,61,.4)'}}>
+                          <td style={{padding:'10px 12px',fontFamily:'Syne',fontWeight:700,color:'#f0f4f8',fontSize:12}}>{SYM[q.symbol]||q.symbol}</td>
+                          <td style={{padding:'10px 12px',textAlign:'right',color:'#f0f4f8',fontWeight:600}}>{isVix?safe(q.ltp).toFixed(2):fmt(q.ltp,2)}</td>
+                          <td style={{padding:'10px 12px',textAlign:'right',color:changeColor}}>{q.change>=0?'+':''}{fmt(q.change,2)}</td>
+                          <td style={{padding:'10px 12px',textAlign:'right',color:changeColor,fontWeight:600}}>{pct(q.changePct)}</td>
+                          <td style={{padding:'10px 12px',textAlign:'right',color:'#8aa4b8'}}>{fmt(q.open,2)}</td>
+                          <td style={{padding:'10px 12px',textAlign:'right',color:'#4ade80'}}>{fmt(q.high,2)}</td>
+                          <td style={{padding:'10px 12px',textAlign:'right',color:'#f87171'}}>{fmt(q.low,2)}</td>
+                          <td style={{padding:'10px 12px',textAlign:'right',color:'#4a6070'}}>{fmt(q.close,2)}</td>
+                          <td style={{padding:'10px 12px',textAlign:'right',color:'#4a6070'}}>{isVix||safe(q.volume)===0?'—':`${(safe(q.volume)/1e6).toFixed(2)}M`}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* VIX Regime trading guide */}
+            {data && (
+              <div className="card">
+                <div style={{fontFamily:'Syne',fontWeight:700,fontSize:11,textTransform:'uppercase',letterSpacing:'.1em',color:'#e8b86d',marginBottom:14}}>VIX Regime — Index Strategy Guide</div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:10}}>
+                  {[
+                    {r:'CRUSHED',vix:'8–12',nifty:'Wait for IV pickup',bank:'Skip premium selling',finn:'Avoid',action:'Directional only',c:'#94a3b8'},
+                    {r:'NORMAL', vix:'12–18',nifty:'Full Iron Condor',bank:'Bull Put Spread',finn:'Short Strangle',action:'Full size · All strats',c:'#4ade80'},
+                    {r:'ELEVATED',vix:'18–25',nifty:'½ size Condor',bank:'Protective hedge',finn:'Half size only',action:'50% size · Defined risk',c:'#fbbf24'},
+                    {r:'EXTREME', vix:'25+',nifty:'Exit / Buy Puts',bank:'Emergency hedge',finn:'Exit all',action:'No selling · Cash or hedge',c:'#f87171'},
+                  ].map(z=>{
+                    const isActive = data.regime === z.r;
+                    return (
+                      <div key={z.r} style={{padding:'12px 14px',border:`1px solid ${isActive?z.c+'60':z.c+'20'}`,background:isActive?`${z.c}08`:'transparent',position:'relative'}}>
+                        {isActive && <div style={{position:'absolute',top:0,left:0,right:0,height:2,background:z.c,opacity:.8}}></div>}
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                          <div style={{fontFamily:'Syne',fontWeight:700,fontSize:12,color:z.c}}>{z.r}</div>
+                          <div style={{fontSize:9,color:z.c,opacity:.7}}>VIX {z.vix}</div>
+                          {isActive && <div style={{fontSize:8,padding:'1px 5px',background:z.c+'20',border:`1px solid ${z.c}40`,color:z.c,letterSpacing:'.06em'}}>ACTIVE</div>}
+                        </div>
+                        <div style={{fontSize:10,color:'#4a6070',marginBottom:4}}><span style={{color:'#8aa4b8'}}>NIFTY: </span>{z.nifty}</div>
+                        <div style={{fontSize:10,color:'#4a6070',marginBottom:4}}><span style={{color:'#8aa4b8'}}>BANKNIFTY: </span>{z.bank}</div>
+                        <div style={{fontSize:10,color:'#4a6070',marginBottom:8}}><span style={{color:'#8aa4b8'}}>FINNIFTY: </span>{z.finn}</div>
+                        <div style={{fontSize:9,padding:'4px 8px',background:'#0d1219',color:z.c,letterSpacing:'.04em'}}>{z.action}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {!data && !loading && (
+              <div style={{textAlign:'center',padding:60,color:'#4a6070'}}>No index data. Connect Fyers to view live Nifty indices.</div>
             )}
           </div>
 
