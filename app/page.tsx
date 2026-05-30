@@ -1,6 +1,8 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { generateStrategySignals, classifyVixRegime } from '@/lib/signals';
+import { SCREENER_UNIVERSE, SECTOR_COLORS } from '@/lib/screener';
+import type { ScreenerStock } from '@/lib/screener';
 import dynamic from 'next/dynamic';
 
 // Dynamically import Recharts components to disable server-side rendering for them
@@ -91,7 +93,7 @@ const NIFTY_INDEX_META: Record<string, {desc:string;label:string;color:string;bg
 };
 
 export default function ThetaDash() {
-  const [tab, setTab] = useState<'live'|'signals'|'positions'|'journal'|'indices'>('live');
+  const [tab, setTab] = useState<'live'|'signals'|'positions'|'journal'|'indices'|'radar'>('live');
   const [isDemo, setIsDemo] = useState(false);
   const [data, setData] = useState<ApiResponse | null>(null);
   const [positions, setPositions] = useState<PaperPosition[]>([]);
@@ -110,6 +112,11 @@ export default function ThetaDash() {
     regimeData: any[];
   } | null>(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+  const [screenerStocks, setScreenerStocks] = useState<ScreenerStock[] | null>(null);
+  const [screenerLoading, setScreenerLoading] = useState(false);
+  const [screenerScannedAt, setScreenerScannedAt] = useState<string | null>(null);
+  const [screenerIsDemo, setScreenerIsDemo] = useState(false);
+  const [screenerFilter, setScreenerFilter] = useState({ minVol: 1.5, minDepth: 20, maxDepth: 50 });
   const esRef  = useRef<EventSource | null>(null);
   const posRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -169,6 +176,31 @@ export default function ThetaDash() {
       setLoadingAnalytics(false);
     }
   }, [isDemo]);
+
+  const runScreener = useCallback(async (filter = screenerFilter) => {
+    setScreenerLoading(true);
+    try {
+      const params = new URLSearchParams({
+        minVol:   String(filter.minVol),
+        minDepth: String(filter.minDepth),
+        maxDepth: String(filter.maxDepth),
+        ...(isDemo ? { demo: 'true' } : {}),
+      });
+      const r    = await fetch(`/api/fyers/screener?${params}`);
+      const json = await r.json();
+      if (json.success) {
+        setScreenerStocks(json.stocks);
+        setScreenerScannedAt(json.scannedAt);
+        setScreenerIsDemo(json.isSimulated);
+      } else {
+        addToast(`Screener error: ${json.error}`, 'err');
+      }
+    } catch (err) {
+      addToast(`Screener failed: ${String(err)}`, 'err');
+    } finally {
+      setScreenerLoading(false);
+    }
+  }, [isDemo, screenerFilter]);
 
   // Initial quote fetch (signals + portfolioStats on first load, re-used on SSE error)
   const fetchLive = useCallback(async () => {
@@ -237,10 +269,9 @@ export default function ThetaDash() {
   };
 
   useEffect(() => {
-    if (tab === 'journal') {
-      fetchAnalytics();
-    }
-  }, [tab, fetchAnalytics]);
+    if (tab === 'journal') fetchAnalytics();
+    if (tab === 'radar' && !screenerStocks && !screenerLoading) runScreener();
+  }, [tab, fetchAnalytics, screenerStocks, screenerLoading, runScreener]);
 
   // ── SSE stream: real-time ticks from Fyers WebSocket (or simulated) ──────
   useEffect(() => {
@@ -418,6 +449,7 @@ export default function ThetaDash() {
         <button className={`tb ${tab==='positions'?'a':''}`} onClick={()=>setTab('positions')}>📂 Positions {openCount?`(${openCount})`:''}</button>
         <button className={`tb ${tab==='journal'?'a':''}`} onClick={()=>setTab('journal')}>📒 Journal</button>
         <button className={`tb ${tab==='indices'?'a':''}`} onClick={()=>setTab('indices')}>📊 Nifty Indices</button>
+        <button className={`tb ${tab==='radar'?'a':''}`} onClick={()=>setTab('radar')}>🔍 Breakout Radar {screenerStocks?.length?`(${screenerStocks.length})`:''}</button>
       </div>
 
       {/* MAIN CONTENT */}
@@ -655,6 +687,261 @@ export default function ThetaDash() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+
+        ) : tab==='radar' ? (
+          <div>
+            {/* Header row */}
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:12,marginBottom:16}}>
+              <div>
+                <div style={{fontFamily:'Syne',fontSize:14,fontWeight:700,color:'#e8b86d',marginBottom:4}}>Breakout Radar</div>
+                <div style={{fontSize:10,color:'#4a6070',textTransform:'uppercase',letterSpacing:'.08em'}}>
+                  {screenerLoading
+                    ? `Scanning ${SCREENER_UNIVERSE.length} stocks…`
+                    : screenerScannedAt
+                      ? `${SCREENER_UNIVERSE.length} stocks scanned · ${screenerStocks?.length ?? 0} setups found · ${new Date(screenerScannedAt).toLocaleTimeString('en-IN')}${screenerIsDemo?' · DEMO DATA':''}`
+                      : `${SCREENER_UNIVERSE.length} stocks in universe · click Scan to start`
+                  }
+                </div>
+              </div>
+              <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+                {/* Filter chips */}
+                <select
+                  value={screenerFilter.minVol}
+                  onChange={e=>{
+                    const v={...screenerFilter,minVol:parseFloat(e.target.value)};
+                    setScreenerFilter(v);
+                  }}
+                  style={{background:'#0d1219',border:'1px solid #1e2d3d',color:'#8aa4b8',fontFamily:'inherit',fontSize:10,padding:'5px 8px',cursor:'pointer'}}
+                >
+                  <option value="1.5">Vol ≥ 1.5×</option>
+                  <option value="2">Vol ≥ 2×</option>
+                  <option value="3">Vol ≥ 3×</option>
+                </select>
+                <select
+                  value={`${screenerFilter.minDepth}-${screenerFilter.maxDepth}`}
+                  onChange={e=>{
+                    const [mn,mx]=e.target.value.split('-').map(Number);
+                    setScreenerFilter(f=>({...f,minDepth:mn,maxDepth:mx}));
+                  }}
+                  style={{background:'#0d1219',border:'1px solid #1e2d3d',color:'#8aa4b8',fontFamily:'inherit',fontSize:10,padding:'5px 8px',cursor:'pointer'}}
+                >
+                  <option value="20-50">Depth 20–50%</option>
+                  <option value="20-30">Depth 20–30%</option>
+                  <option value="30-40">Depth 30–40%</option>
+                  <option value="40-50">Depth 40–50%</option>
+                </select>
+                <button
+                  className="btn btng"
+                  disabled={screenerLoading}
+                  style={{opacity:screenerLoading?.5:1}}
+                  onClick={()=>runScreener(screenerFilter)}
+                >
+                  {screenerLoading ? '⏳ Scanning…' : '🔍 Scan Now'}
+                </button>
+              </div>
+            </div>
+
+            {/* Criteria legend */}
+            <div className="card" style={{marginBottom:16,padding:'10px 14px'}}>
+              <div style={{display:'flex',gap:24,flexWrap:'wrap',fontSize:10,color:'#4a6070'}}>
+                {[
+                  {icon:'📉',label:'Down 20–50% from 52-wk high',c:'#60a5fa'},
+                  {icon:'📦',label:'Tight price base (low volatility)',c:'#4ade80'},
+                  {icon:'🔊',label:'Unusual volume surge today',c:'#fbbf24'},
+                  {icon:'⚡',label:'Momentum turning positive',c:'#f87171'},
+                ].map(x=>(
+                  <div key={x.label} style={{display:'flex',alignItems:'center',gap:6}}>
+                    <span>{x.icon}</span>
+                    <span style={{color:x.c}}>{x.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Loading skeleton */}
+            {screenerLoading && (
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))',gap:12}}>
+                {Array.from({length:6}).map((_,i)=>(
+                  <div key={i} className="card" style={{height:200,opacity:.3,animation:'pulse 1.5s infinite',animationDelay:`${i*0.1}s`}}>
+                    <div style={{height:12,background:'#1e2d3d',borderRadius:2,marginBottom:10,width:'60%'}}></div>
+                    <div style={{height:28,background:'#1e2d3d',borderRadius:2,marginBottom:16,width:'40%'}}></div>
+                    <div style={{height:8,background:'#1e2d3d',borderRadius:2,marginBottom:8,width:'100%'}}></div>
+                    <div style={{height:8,background:'#1e2d3d',borderRadius:2,marginBottom:8,width:'80%'}}></div>
+                    <div style={{height:8,background:'#1e2d3d',borderRadius:2,marginBottom:8,width:'90%'}}></div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* No results */}
+            {!screenerLoading && screenerStocks?.length === 0 && (
+              <div style={{textAlign:'center',padding:60,color:'#4a6070'}}>
+                <div style={{fontSize:32,marginBottom:12}}>🎯</div>
+                <div>No stocks match the current criteria.</div>
+                <div style={{fontSize:11,marginTop:8}}>Try lowering the volume threshold or widening the depth range.</div>
+              </div>
+            )}
+
+            {/* Not scanned yet */}
+            {!screenerLoading && screenerStocks === null && (
+              <div style={{textAlign:'center',padding:60,color:'#4a6070'}}>
+                <div style={{fontSize:32,marginBottom:12}}>🔍</div>
+                <div>Click <span style={{color:'#4ade80'}}>Scan Now</span> to find breakout setups</div>
+              </div>
+            )}
+
+            {/* Results */}
+            {!screenerLoading && screenerStocks && screenerStocks.length > 0 && (
+              <div>
+                {/* Cards grid */}
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))',gap:12,marginBottom:20}}>
+                  {screenerStocks.map(s => {
+                    const sc = SECTOR_COLORS[s.sector] || SECTOR_COLORS['Banking'];
+                    const scoreColor = s.score >= 70 ? '#4ade80' : s.score >= 50 ? '#fbbf24' : '#f87171';
+                    const scoreBg    = s.score >= 70 ? 'rgba(74,222,128,.08)' : s.score >= 50 ? 'rgba(251,191,36,.08)' : 'rgba(248,113,113,.08)';
+                    const scoreBdr   = s.score >= 70 ? 'rgba(74,222,128,.25)' : s.score >= 50 ? 'rgba(251,191,36,.25)' : 'rgba(248,113,113,.25)';
+                    const changeCc   = s.changePct >= 0 ? '#4ade80' : '#f87171';
+                    const depthPos   = Math.min(95, Math.max(3, ((s.pctFromHigh - 20) / 30) * 100));
+                    const volBarW    = Math.min(100, ((s.volumeRatio - 1) / 3) * 100);
+                    return (
+                      <div key={s.symbol} className="card fi" style={{borderColor:s.isBreakingOut?'rgba(74,222,128,.35)':scoreBdr,position:'relative',overflow:'hidden'}}>
+                        {/* Score accent bar */}
+                        <div style={{position:'absolute',top:0,left:0,right:0,height:2,background:scoreColor,opacity:.7}}></div>
+
+                        {/* Header */}
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
+                          <div>
+                            <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:3}}>
+                              <span style={{fontFamily:'Syne',fontSize:15,fontWeight:700,color:'#f0f4f8'}}>{s.name}</span>
+                              {s.isBreakingOut && <span style={{fontSize:9,padding:'1px 6px',background:'rgba(74,222,128,.12)',border:'1px solid rgba(74,222,128,.3)',color:'#4ade80',letterSpacing:'.06em'}}>BREAKING OUT</span>}
+                            </div>
+                            <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                              <span style={{fontSize:9,padding:'2px 7px',background:sc.bg,border:`1px solid ${sc.border}`,color:sc.color,letterSpacing:'.06em',textTransform:'uppercase'}}>{s.sector}</span>
+                              <span style={{fontSize:10,color:'#4a6070'}}>{s.symbol.replace('NSE:','').replace('-EQ','')}</span>
+                            </div>
+                          </div>
+                          <div style={{textAlign:'right'}}>
+                            <div style={{fontFamily:'Syne',fontSize:22,fontWeight:800,color:'#f0f4f8',lineHeight:1}}>₹{s.ltp.toLocaleString('en-IN',{maximumFractionDigits:1})}</div>
+                            <div style={{fontSize:11,color:changeCc,marginTop:2}}>{s.changePct>=0?'+':''}{s.changePct.toFixed(2)}%</div>
+                          </div>
+                        </div>
+
+                        {/* Depth from 52-week high bar */}
+                        <div style={{marginBottom:10}}>
+                          <div style={{display:'flex',justifyContent:'space-between',fontSize:9,color:'#4a6070',marginBottom:3}}>
+                            <span>52-wk High ₹{s.weekHigh52.toLocaleString('en-IN',{maximumFractionDigits:0})}</span>
+                            <span style={{color:'#f87171',fontWeight:600}}>{s.pctFromHigh.toFixed(1)}% below high</span>
+                          </div>
+                          <div style={{height:6,background:'#111820',borderRadius:3,overflow:'hidden',position:'relative'}}>
+                            <div style={{position:'absolute',left:0,top:0,height:'100%',width:`${100-depthPos}%`,background:'rgba(248,113,113,.25)'}}></div>
+                            <div style={{position:'absolute',left:`${100-depthPos}%`,top:0,height:'100%',width:`${depthPos}%`,background:'rgba(30,45,61,.8)'}}></div>
+                            <div style={{position:'absolute',left:`${100-depthPos-2}%`,top:-2,width:4,height:10,background:'#f87171',borderRadius:1}}></div>
+                          </div>
+                          <div style={{display:'flex',justifyContent:'space-between',fontSize:9,color:'#4a6070',marginTop:2}}>
+                            <span>52-wk Low ₹{s.weekLow52.toLocaleString('en-IN',{maximumFractionDigits:0})}</span>
+                            <span>Current</span>
+                          </div>
+                        </div>
+
+                        {/* Volume bar */}
+                        <div style={{marginBottom:10}}>
+                          <div style={{display:'flex',justifyContent:'space-between',fontSize:9,color:'#4a6070',marginBottom:3}}>
+                            <span>Volume vs 20d avg</span>
+                            <span style={{color:'#fbbf24',fontWeight:600}}>{s.volumeRatio.toFixed(2)}× surge</span>
+                          </div>
+                          <div style={{height:5,background:'#111820',borderRadius:2,overflow:'hidden'}}>
+                            <div style={{height:'100%',width:`${volBarW}%`,background:'linear-gradient(90deg,#4a6070,#fbbf24)',borderRadius:2,transition:'width .4s ease'}}></div>
+                          </div>
+                          <div style={{fontSize:9,color:'#4a6070',marginTop:2}}>
+                            Today: {(s.todayVolume/1e6).toFixed(1)}M &nbsp;·&nbsp; Avg: {(s.avgVolume20d/1e6).toFixed(1)}M
+                          </div>
+                        </div>
+
+                        {/* Stats grid */}
+                        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,paddingTop:10,borderTop:'1px solid #1e2d3d',marginBottom:10}}>
+                          <div>
+                            <div style={{fontSize:8,color:'#4a6070',textTransform:'uppercase',marginBottom:2}}>Base Length</div>
+                            <div style={{fontSize:12,color:'#8aa4b8',fontWeight:600}}>{s.baseLength}d</div>
+                          </div>
+                          <div>
+                            <div style={{fontSize:8,color:'#4a6070',textTransform:'uppercase',marginBottom:2}}>Consolidation</div>
+                            <div style={{fontSize:12,color:s.consolidationRange<10?'#4ade80':'#fbbf24',fontWeight:600}}>{s.consolidationRange.toFixed(1)}%</div>
+                          </div>
+                          <div>
+                            <div style={{fontSize:8,color:'#4a6070',textTransform:'uppercase',marginBottom:2}}>5d Trend</div>
+                            <div style={{fontSize:12,color:s.trend5d>=0?'#4ade80':'#f87171',fontWeight:600}}>{s.trend5d>=0?'+':''}{s.trend5d.toFixed(1)}%</div>
+                          </div>
+                        </div>
+
+                        {/* Breakout line + score */}
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                          <div>
+                            <div style={{fontSize:8,color:'#4a6070',textTransform:'uppercase',marginBottom:2}}>Break above</div>
+                            <div style={{fontSize:12,color:'#e8b86d',fontWeight:600}}>₹{s.breakoutLine.toLocaleString('en-IN',{maximumFractionDigits:1})}</div>
+                          </div>
+                          <div style={{textAlign:'right'}}>
+                            <div style={{fontSize:8,color:'#4a6070',textTransform:'uppercase',marginBottom:2}}>Setup Score</div>
+                            <div style={{display:'flex',alignItems:'center',gap:6}}>
+                              <div style={{width:60,height:6,background:'#111820',borderRadius:3,overflow:'hidden'}}>
+                                <div style={{height:'100%',width:`${s.score}%`,background:scoreColor,borderRadius:3,transition:'width .4s ease'}}></div>
+                              </div>
+                              <div style={{fontFamily:'Syne',fontSize:14,fontWeight:700,color:scoreColor,minWidth:28,textAlign:'right'}}>{s.score}</div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Comparison table */}
+                <div className="card" style={{overflowX:'auto'}}>
+                  <div style={{fontFamily:'Syne',fontWeight:700,fontSize:11,textTransform:'uppercase',letterSpacing:'.1em',color:'#e8b86d',marginBottom:14}}>All Setups — Detail View</div>
+                  <table style={{width:'100%',borderCollapse:'collapse',minWidth:800}}>
+                    <thead>
+                      <tr style={{borderBottom:'1px solid #1e2d3d'}}>
+                        {['Score','Stock','Sector','LTP','Day Chg','52wk High','Below High','Vol Ratio','Base','Consolidation','Break Level','Trend 5d'].map(h=>(
+                          <th key={h} style={{padding:'7px 10px',textAlign:h==='Stock'||h==='Sector'?'left':'right',fontSize:9,textTransform:'uppercase',letterSpacing:'.08em',color:'#4a6070',fontWeight:400,whiteSpace:'nowrap'}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {screenerStocks.map(s => {
+                        const sc = SECTOR_COLORS[s.sector] || SECTOR_COLORS['Banking'];
+                        const scoreColor = s.score >= 70 ? '#4ade80' : s.score >= 50 ? '#fbbf24' : '#f87171';
+                        const cc = s.changePct >= 0 ? '#4ade80' : '#f87171';
+                        return (
+                          <tr key={s.symbol} style={{borderBottom:'1px solid rgba(30,45,61,.4)'}}>
+                            <td style={{padding:'8px 10px',textAlign:'right'}}>
+                              <span style={{fontFamily:'Syne',fontWeight:700,fontSize:13,color:scoreColor}}>{s.score}</span>
+                            </td>
+                            <td style={{padding:'8px 10px'}}>
+                              <div style={{fontFamily:'Syne',fontWeight:700,color:'#f0f4f8',fontSize:12}}>{s.name}</div>
+                              <div style={{fontSize:9,color:'#4a6070'}}>{s.symbol.replace('NSE:','').replace('-EQ','')}</div>
+                            </td>
+                            <td style={{padding:'8px 10px'}}>
+                              <span style={{fontSize:9,padding:'2px 6px',background:sc.bg,border:`1px solid ${sc.border}`,color:sc.color,textTransform:'uppercase',letterSpacing:'.05em'}}>{s.sector}</span>
+                            </td>
+                            <td style={{padding:'8px 10px',textAlign:'right',color:'#f0f4f8',fontWeight:600}}>₹{s.ltp.toLocaleString('en-IN',{maximumFractionDigits:1})}</td>
+                            <td style={{padding:'8px 10px',textAlign:'right',color:cc}}>{s.changePct>=0?'+':''}{s.changePct.toFixed(2)}%</td>
+                            <td style={{padding:'8px 10px',textAlign:'right',color:'#8aa4b8'}}>₹{s.weekHigh52.toLocaleString('en-IN',{maximumFractionDigits:0})}</td>
+                            <td style={{padding:'8px 10px',textAlign:'right',color:'#f87171',fontWeight:600}}>{s.pctFromHigh.toFixed(1)}%</td>
+                            <td style={{padding:'8px 10px',textAlign:'right'}}>
+                              <span style={{color:s.volumeRatio>=2.5?'#4ade80':s.volumeRatio>=1.5?'#fbbf24':'#8aa4b8',fontWeight:600}}>{s.volumeRatio.toFixed(2)}×</span>
+                            </td>
+                            <td style={{padding:'8px 10px',textAlign:'right',color:'#8aa4b8'}}>{s.baseLength}d</td>
+                            <td style={{padding:'8px 10px',textAlign:'right',color:s.consolidationRange<10?'#4ade80':'#fbbf24'}}>{s.consolidationRange.toFixed(1)}%</td>
+                            <td style={{padding:'8px 10px',textAlign:'right',color:'#e8b86d'}}>₹{s.breakoutLine.toLocaleString('en-IN',{maximumFractionDigits:1})}</td>
+                            <td style={{padding:'8px 10px',textAlign:'right',color:s.trend5d>=0?'#4ade80':'#f87171'}}>{s.trend5d>=0?'+':''}{s.trend5d.toFixed(1)}%</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>
