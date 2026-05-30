@@ -928,27 +928,39 @@ export async function runSwingScan(): Promise<SwingScanReport> {
     // Scan the first 25 candidate stocks to keep API requests within limits and avoid timeout
     const candidateList = SWING_WATCHLIST.slice(0, 25);
     
-    for (const stock of candidateList) {
-      // Fetch daily candles (200 days)
-      const dailyCandles = await fetchFyersHistory(stock.symbol, 'D', fromStr, toStr);
-      // Fetch weekly candles (60 weeks)
-      const weeklyFromDate = new Date();
-      weeklyFromDate.setDate(now.getDate() - 450);
-      const weeklyCandles = await fetchFyersHistory(stock.symbol, 'W', fmtDate(weeklyFromDate), toStr);
+    const weeklyFromDate = new Date();
+    weeklyFromDate.setDate(now.getDate() - 450);
+    const weeklyFromStr = fmtDate(weeklyFromDate);
 
-      if (dailyCandles.length < 200 || weeklyCandles.length < 20) {
-        continue;
-      }
+    const batchSize = 5;
+    for (let i = 0; i < candidateList.length; i += batchSize) {
+      const batch = candidateList.slice(i, i + batchSize);
+      
+      const batchResults = await Promise.all(
+        batch.map(async (stock) => {
+          const [dailyCandles, weeklyCandles] = await Promise.all([
+            fetchFyersHistory(stock.symbol, 'D', fromStr, toStr),
+            fetchFyersHistory(stock.symbol, 'W', weeklyFromStr, toStr)
+          ]);
+          return { stock, dailyCandles, weeklyCandles };
+        })
+      );
 
-      const analyzed = analyzeStock(stock, dailyCandles, weeklyCandles, niftyDaily, marketEnv);
-      if (analyzed) {
-        watchlist.push(analyzed);
-      } else {
-        // Log some stock as avoid if it was filtered out
-        const lastDaily = dailyCandles[dailyCandles.length - 1];
-        const lastWeekly = weeklyCandles[weeklyCandles.length - 1];
-        if (lastDaily.close > lastWeekly.high * 1.10) {
-          stocksToAvoid.push({ symbol: stock.symbol, reason: 'Extended > 10% from previous 8-week breakout level' });
+      for (const { stock, dailyCandles, weeklyCandles } of batchResults) {
+        if (!dailyCandles || dailyCandles.length < 200 || !weeklyCandles || weeklyCandles.length < 20) {
+          continue;
+        }
+
+        const analyzed = analyzeStock(stock, dailyCandles, weeklyCandles, niftyDaily, marketEnv);
+        if (analyzed) {
+          watchlist.push(analyzed);
+        } else {
+          // Log some stock as avoid if it was filtered out
+          const lastDaily = dailyCandles[dailyCandles.length - 1];
+          const lastWeekly = weeklyCandles[weeklyCandles.length - 1];
+          if (lastDaily && lastWeekly && lastDaily.close > lastWeekly.high * 1.10) {
+            stocksToAvoid.push({ symbol: stock.symbol, reason: 'Extended > 10% from previous 8-week breakout level' });
+          }
         }
       }
     }
