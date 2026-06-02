@@ -207,4 +207,165 @@ export const SWING_WATCHLIST: WatchlistStock[] = [
   { symbol: 'NSE:ASIANPAINT-EQ',  name: 'Asian Paints',                sector: 'Consumer Goods' },
   { symbol: 'NSE:BERGEPAINT-EQ',  name: 'Berger Paints',               sector: 'Consumer Goods' },
   { symbol: 'NSE:KANSAINER-EQ',   name: 'Kansai Nerolac',              sector: 'Consumer Goods' },
+
+  // ── Capital Markets / Exchanges / AMC ─────────────────────────────────────
+  { symbol: 'NSE:ANGELONE-EQ',    name: 'Angel One',                   sector: 'Financials' },
+  { symbol: 'NSE:BSE-EQ',         name: 'BSE',                         sector: 'Financials' },
+  { symbol: 'NSE:CDSL-EQ',        name: 'CDSL',                        sector: 'Financials' },
+  { symbol: 'NSE:MCX-EQ',         name: 'Multi Commodity Exchange',    sector: 'Financials' },
+  { symbol: 'NSE:HDFCAMC-EQ',     name: 'HDFC AMC',                    sector: 'Financials' },
+  { symbol: 'NSE:NAM-INDIA-EQ',   name: 'Nippon India AMC',            sector: 'Financials' },
+  { symbol: 'NSE:UTIAMC-EQ',      name: 'UTI AMC',                     sector: 'Financials' },
+  { symbol: 'NSE:360ONE-EQ',      name: '360 One WAM',                 sector: 'Financials' },
+  { symbol: 'NSE:SBICARDS-EQ',    name: 'SBI Cards',                   sector: 'Financials' },
+  { symbol: 'NSE:SHRIRAMFIN-EQ',  name: 'Shriram Finance',             sector: 'Financials' },
+  { symbol: 'NSE:SUNDARMFIN-EQ',  name: 'Sundaram Finance',            sector: 'Financials' },
+  { symbol: 'NSE:ICICIGI-EQ',     name: 'ICICI Lombard GI',            sector: 'Financials' },
+  { symbol: 'NSE:STARHEALTH-EQ',  name: 'Star Health Insurance',       sector: 'Financials' },
+
+  // ── Pharma Mid-cap ────────────────────────────────────────────────────────
+  { symbol: 'NSE:MANKIND-EQ',     name: 'Mankind Pharma',              sector: 'Pharma' },
+  { symbol: 'NSE:TORNTPHARM-EQ',  name: 'Torrent Pharmaceuticals',     sector: 'Pharma' },
+  { symbol: 'NSE:ALKEM-EQ',       name: 'Alkem Laboratories',          sector: 'Pharma' },
+  { symbol: 'NSE:JBCHEPHARM-EQ',  name: 'JB Chemicals & Pharma',      sector: 'Pharma' },
+  { symbol: 'NSE:GLENMARK-EQ',    name: 'Glenmark Pharmaceuticals',    sector: 'Pharma' },
+  { symbol: 'NSE:NATCOPHARM-EQ',  name: 'Natco Pharma',                sector: 'Pharma' },
+  { symbol: 'NSE:SYNGENE-EQ',     name: 'Syngene International',       sector: 'Pharma' },
+  { symbol: 'NSE:ABBOTINDIA-EQ',  name: 'Abbott India',                sector: 'Pharma' },
+  { symbol: 'NSE:PFIZER-EQ',      name: 'Pfizer India',                sector: 'Pharma' },
+  { symbol: 'NSE:SUDARSCHEM-EQ',  name: 'Sudarshan Chemical',          sector: 'Chemicals' },
+
+  // ── IT Mid-cap ────────────────────────────────────────────────────────────
+  { symbol: 'NSE:TATAELXSI-EQ',   name: 'Tata Elxsi',                  sector: 'IT' },
+  { symbol: 'NSE:BIRLASOFT-EQ',   name: 'Birlasoft',                   sector: 'IT' },
+  { symbol: 'NSE:MASTEK-EQ',      name: 'Mastek',                      sector: 'IT' },
+  { symbol: 'NSE:NIITLTD-EQ',     name: 'NIIT',                        sector: 'IT' },
+  { symbol: 'NSE:INTELLECT-EQ',   name: 'Intellect Design Arena',      sector: 'IT' },
+  { symbol: 'NSE:RATEGAIN-EQ',    name: 'RateGain Travel Technologies',sector: 'IT' },
+  { symbol: 'NSE:NEWGEN-EQ',      name: 'Newgen Software',             sector: 'IT' },
+
+  // ── Auto Ancillaries ─────────────────────────────────────────────────────
+  { symbol: 'NSE:SONACOMS-EQ',    name: 'Sona BLW Precision',          sector: 'Auto' },
+  { symbol: 'NSE:MINDAIND-EQ',    name: 'Minda Industries',            sector: 'Auto' },
+  { symbol: 'NSE:SUBROS-EQ',      name: 'Subros',                      sector: 'Auto' },
+  { symbol: 'NSE:TIINDIA-EQ',     name: 'Tube Investments of India',   sector: 'Auto' },
+  { symbol: 'NSE:SCHAEFFLER-EQ',  name: 'Schaeffler India',            sector: 'Auto' },
+
+  // ── Infrastructure / Construction ─────────────────────────────────────────
+  { symbol: 'NSE:JKCEMENT-EQ',    name: 'JK Cement',                   sector: 'Cement' },
+  { symbol: 'NSE:DALMIACBT-EQ',   name: 'Dalmia Bharat',               sector: 'Cement' },
+  { symbol: 'NSE:RAMCOCEM-EQ',    name: 'Ramco Cements',               sector: 'Cement' },
+  { symbol: 'NSE:BIRLACORPN-EQ',  name: 'Birla Corporation',           sector: 'Cement' },
+  { symbol: 'NSE:KNRCON-EQ',      name: 'KNR Constructions',           sector: 'Infrastructure' },
+  { symbol: 'NSE:PNCINFRA-EQ',    name: 'PNC Infratech',               sector: 'Infrastructure' },
+  { symbol: 'NSE:GPPL-EQ',        name: 'Gujarat Pipavav Port',        sector: 'Infrastructure' },
+  { symbol: 'NSE:AIAENG-EQ',      name: 'AIA Engineering',             sector: 'Capital Goods' },
+  { symbol: 'NSE:ELGIEQUIP-EQ',   name: 'Elgi Equipments',             sector: 'Capital Goods' },
+  { symbol: 'NSE:KECL-EQ',        name: 'Kirloskar Electric',          sector: 'Capital Goods' },
+  { symbol: 'NSE:CGPOWER-EQ',     name: 'CG Power & Industrial',       sector: 'Capital Goods' },
+  { symbol: 'NSE:KALYANKJIL-EQ',  name: 'Kalyan Jewellers',            sector: 'Consumer Goods' },
+  { symbol: 'NSE:SENCO-EQ',       name: 'Senco Gold',                  sector: 'Consumer Goods' },
+  { symbol: 'NSE:THANGAMAYL-EQ',  name: 'Thangamayil Jewellery',       sector: 'Consumer Goods' },
+
+  // ── Defense / Space ───────────────────────────────────────────────────────
+  { symbol: 'NSE:DATAPATTNS-EQ',  name: 'Data Patterns',               sector: 'Defense' },
+  { symbol: 'NSE:MTAR-EQ',        name: 'MTAR Technologies',           sector: 'Defense' },
+  { symbol: 'NSE:PARAS-EQ',       name: 'Paras Defence',               sector: 'Defense' },
+  { symbol: 'NSE:COCHINSHIP-EQ',  name: 'Cochin Shipyard',             sector: 'Defense' },
+  { symbol: 'NSE:MAZDOCK-EQ',     name: 'Mazagon Dock',                sector: 'Defense' },
+  { symbol: 'NSE:GARDENREACH-EQ', name: 'Garden Reach Shipbuilders',   sector: 'Defense' },
+
+  // ── Consumer Durables Mid-cap ─────────────────────────────────────────────
+  { symbol: 'NSE:BLUESTARCO-EQ',  name: 'Blue Star',                   sector: 'Consumer Durables' },
+  { symbol: 'NSE:CROMPTON-EQ',    name: 'Crompton Greaves Consumer',   sector: 'Consumer Durables' },
+  { symbol: 'NSE:VGUARD-EQ',      name: 'V-Guard Industries',          sector: 'Consumer Durables' },
+  { symbol: 'NSE:AMBER-EQ',       name: 'Amber Enterprises',           sector: 'Consumer Durables' },
+  { symbol: 'NSE:BAJAJELEC-EQ',   name: 'Bajaj Electricals',           sector: 'Consumer Durables' },
+  { symbol: 'NSE:ORIENTELEC-EQ',  name: 'Orient Electric',             sector: 'Consumer Durables' },
+
+  // ── FMCG / Consumer Mid-cap ───────────────────────────────────────────────
+  { symbol: 'NSE:GODREJCP-EQ',    name: 'Godrej Consumer Products',    sector: 'FMCG' },
+  { symbol: 'NSE:TATACONSUM-EQ',  name: 'Tata Consumer Products',      sector: 'FMCG' },
+  { symbol: 'NSE:VARUNBEV-EQ',    name: 'Varun Beverages',             sector: 'FMCG' },
+  { symbol: 'NSE:UBL-EQ',         name: 'United Breweries',            sector: 'FMCG' },
+  { symbol: 'NSE:MCDOWELL-N-EQ',  name: 'United Spirits',              sector: 'FMCG' },
+  { symbol: 'NSE:BATAINDIA-EQ',   name: 'Bata India',                  sector: 'Retail' },
+  { symbol: 'NSE:VMART-EQ',       name: 'V-Mart Retail',               sector: 'Retail' },
+  { symbol: 'NSE:DMART-EQ',       name: 'Avenue Supermarts (D-Mart)',  sector: 'Retail' },
+  { symbol: 'NSE:NIACL-EQ',       name: 'New India Assurance',         sector: 'Financials' },
+
+  // ── Metals Mid-cap ────────────────────────────────────────────────────────
+  { symbol: 'NSE:RATNAMANI-EQ',   name: 'Ratnamani Metals & Tubes',    sector: 'Metals' },
+  { symbol: 'NSE:WELCORP-EQ',     name: 'Welspun Corp',                sector: 'Metals' },
+  { symbol: 'NSE:JSWHL-EQ',       name: 'JSW Holdings',                sector: 'Metals' },
+  { symbol: 'NSE:MANGLMCEM-EQ',   name: 'Mangalam Cement',             sector: 'Cement' },
+
+  // ── Energy / Power Mid-cap ────────────────────────────────────────────────
+  { symbol: 'NSE:CESC-EQ',        name: 'CESC',                        sector: 'Utilities' },
+  { symbol: 'NSE:NHPC-EQ',        name: 'NHPC',                        sector: 'Utilities' },
+  { symbol: 'NSE:SJVN-EQ',        name: 'SJVN',                        sector: 'Utilities' },
+  { symbol: 'NSE:RPOWER-EQ',      name: 'Reliance Power',              sector: 'Utilities' },
+  { symbol: 'NSE:ADANITRANS-EQ',  name: 'Adani Transmission',          sector: 'Utilities' },
+  { symbol: 'NSE:INOXWIND-EQ',    name: 'Inox Wind',                   sector: 'Utilities' },
+  { symbol: 'NSE:SUZLON-EQ',      name: 'Suzlon Energy',               sector: 'Utilities' },
+
+  // ── Hospitality / Media ───────────────────────────────────────────────────
+  { symbol: 'NSE:INDHOTEL-EQ',    name: 'Indian Hotels (Taj)',         sector: 'Hospitality' },
+  { symbol: 'NSE:LEMONTREE-EQ',   name: 'Lemon Tree Hotels',           sector: 'Hospitality' },
+  { symbol: 'NSE:EIHOTEL-EQ',     name: 'EIH (Oberoi Hotels)',         sector: 'Hospitality' },
+  { symbol: 'NSE:CHALET-EQ',      name: 'Chalet Hotels',               sector: 'Hospitality' },
+  { symbol: 'NSE:PVRINOX-EQ',     name: 'PVR INOX',                    sector: 'Media' },
+  { symbol: 'NSE:SUNTV-EQ',       name: 'Sun TV Network',              sector: 'Media' },
+  { symbol: 'NSE:ZEEL-EQ',        name: 'Zee Entertainment',           sector: 'Media' },
+
+  // ── Diagnostics / Specialty Healthcare ───────────────────────────────────
+  { symbol: 'NSE:THYROCARE-EQ',   name: 'Thyrocare Technologies',      sector: 'Healthcare' },
+  { symbol: 'NSE:VIJAYA-EQ',      name: 'Vijaya Diagnostic',           sector: 'Healthcare' },
+  { symbol: 'NSE:ASTER-EQ',       name: 'Aster DM Healthcare',         sector: 'Healthcare' },
+  { symbol: 'NSE:RAINBOW-EQ',     name: 'Rainbow Childrens Medicare',  sector: 'Healthcare' },
+  { symbol: 'NSE:KRSNAA-EQ',      name: 'Krsnaa Diagnostics',          sector: 'Healthcare' },
+
+  // ── Specialty Chemicals ───────────────────────────────────────────────────
+  { symbol: 'NSE:BALMLAWRIE-EQ',  name: 'Balmer Lawrie',               sector: 'Chemicals' },
+  { symbol: 'NSE:ALKYLAMINE-EQ',  name: 'Alkyl Amines Chemicals',      sector: 'Chemicals' },
+  { symbol: 'NSE:BALAXI-EQ',      name: 'Balaji Amines',               sector: 'Chemicals' },
+  { symbol: 'NSE:CLEAN-EQ',       name: 'Clean Science and Technology',sector: 'Chemicals' },
+  { symbol: 'NSE:EPIGRAL-EQ',     name: 'Epigral',                     sector: 'Chemicals' },
+  { symbol: 'NSE:GALAXYSURF-EQ',  name: 'Galaxy Surfactants',          sector: 'Chemicals' },
+  { symbol: 'NSE:NOCIL-EQ',       name: 'NOCIL',                       sector: 'Chemicals' },
+
+  // ── Agri / Fertilisers ────────────────────────────────────────────────────
+  { symbol: 'NSE:COROMANDEL-EQ',  name: 'Coromandel International',    sector: 'Agri' },
+  { symbol: 'NSE:CHAMBLFERT-EQ',  name: 'Chambal Fertilisers',         sector: 'Agri' },
+  { symbol: 'NSE:GNFC-EQ',        name: 'GNFC',                        sector: 'Agri' },
+  { symbol: 'NSE:KSCL-EQ',        name: 'Kaveri Seed Company',         sector: 'Agri' },
+  { symbol: 'NSE:RALLIS-EQ',      name: 'Rallis India',                sector: 'Agri' },
+
+  // ── Logistics / Freight ───────────────────────────────────────────────────
+  { symbol: 'NSE:BLUEDART-EQ',    name: 'Blue Dart Express',           sector: 'Logistics' },
+  { symbol: 'NSE:MAHLOG-EQ',      name: 'Mahindra Logistics',          sector: 'Logistics' },
+  { symbol: 'NSE:GATI-EQ',        name: 'Gati',                        sector: 'Logistics' },
+  { symbol: 'NSE:VRL-EQ',         name: 'VRL Logistics',               sector: 'Logistics' },
+  { symbol: 'NSE:REDINGTON-EQ',   name: 'Redington India',             sector: 'Logistics' },
+
+  // ── Paper / Packaging ─────────────────────────────────────────────────────
+  { symbol: 'NSE:UFLEX-EQ',       name: 'Uflex',                       sector: 'Packaging' },
+  { symbol: 'NSE:MOLD-TEK-EQ',    name: 'Mold-Tek Packaging',          sector: 'Packaging' },
+  { symbol: 'NSE:JKPAPER-EQ',     name: 'JK Paper',                    sector: 'Packaging' },
+
+  // ── Education ─────────────────────────────────────────────────────────────
+  { symbol: 'NSE:CAREEREDGE-EQ',  name: 'Career Edge (Careervision)',   sector: 'Education' },
+  { symbol: 'NSE:CENTUM-EQ',      name: 'Centum Electronics',          sector: 'Education' },
+  { symbol: 'NSE:VERITAAS-EQ',    name: 'Veritaas Advertising',        sector: 'Education' },
+
+  // ── Real Estate Mid-cap ───────────────────────────────────────────────────
+  { symbol: 'NSE:KOLTEPATIL-EQ',  name: 'Kolte-Patil Developers',      sector: 'Real Estate' },
+  { symbol: 'NSE:MAHLIFE-EQ',     name: 'Mahindra Lifespace',          sector: 'Real Estate' },
+  { symbol: 'NSE:PURAVANKARA-EQ', name: 'Puravankara',                 sector: 'Real Estate' },
+  { symbol: 'NSE:SUNTECK-EQ',     name: 'Sunteck Realty',              sector: 'Real Estate' },
+
+  // ── Electronics Manufacturing Services ────────────────────────────────────
+  { symbol: 'NSE:KAYNES-EQ',      name: 'Kaynes Technology',           sector: 'Consumer Durables' },
+  { symbol: 'NSE:SYRMA-EQ',       name: 'Syrma SGS Technology',        sector: 'Consumer Durables' },
+  { symbol: 'NSE:AVALON-EQ',      name: 'Avalon Technologies',         sector: 'Consumer Durables' },
 ];
