@@ -76,18 +76,26 @@ export function generateStrategySignals(quotes: QuoteData[]): ThetaSignal[] {
   const vix = vixData?.ltp || 15;
   const regime = classifyVixRegime(vix);
 
-  if (nifty && (regime === 'NORMAL' || regime === 'CRUSHED')) {
+  // Generate NIFTY Iron Condor for all regimes except EXTREME.
+  // In ELEVATED VIX, use tighter strikes (200/300pt) and flag as HIGH urgency.
+  if (nifty && regime !== 'EXTREME') {
     const spot = nifty.ltp;
     const roundedSpot = Math.round(spot / 50) * 50;
-    const sellCallStrike = roundedSpot + 250;
-    const buyCallStrike = roundedSpot + 350;
-    const sellPutStrike = roundedSpot - 250;
-    const buyPutStrike = roundedSpot - 350;
+    const sellOffset = regime === 'ELEVATED' ? 200 : 250;
+    const buyOffset  = regime === 'ELEVATED' ? 300 : 350;
+    const sellCallStrike = roundedSpot + sellOffset;
+    const buyCallStrike  = roundedSpot + buyOffset;
+    const sellPutStrike  = roundedSpot - sellOffset;
+    const buyPutStrike   = roundedSpot - buyOffset;
 
-    // Simulate option premiums
-    const callPremium = Math.max(20, (350 - (sellCallStrike - spot)) * 0.4);
-    const putPremium = Math.max(20, (350 - (spot - sellPutStrike)) * 0.4);
-    const netCredit = (callPremium + putPremium) * 0.8;
+    const callPremium = Math.max(20, (buyOffset - (sellCallStrike - spot)) * 0.4);
+    const putPremium  = Math.max(20, (buyOffset - (spot - sellPutStrike)) * 0.4);
+    const netCredit   = (callPremium + putPremium) * 0.8;
+    const spreadWidth = buyOffset - sellOffset;
+
+    const reason = regime === 'ELEVATED'
+      ? `VIX at ${vix.toFixed(1)} (ELEVATED) — 50% size, tighter ±${sellOffset}/${buyOffset}pt strikes. NIFTY near ${spot.toFixed(0)}`
+      : `VIX at ${vix.toFixed(1)} — ideal premium selling zone. NIFTY range-bound near ${spot.toFixed(0)}`;
 
     signals.push({
       id: `IC-NIFTY-${Date.now()}`,
@@ -95,7 +103,7 @@ export function generateStrategySignals(quotes: QuoteData[]): ThetaSignal[] {
       symbol: 'NIFTY',
       type: 'IRON_CONDOR',
       action: 'ENTER',
-      reason: `VIX at ${vix.toFixed(1)} — ideal premium selling zone. NIFTY range-bound near ${spot.toFixed(0)}`,
+      reason,
       legs: [
         { action: 'SELL', optionType: 'CE', strike: sellCallStrike, expiry: getNextThursday(), lotSize: 50, quantity: 1, premium: callPremium },
         { action: 'BUY', optionType: 'CE', strike: buyCallStrike, expiry: getNextThursday(), lotSize: 50, quantity: 1, premium: callPremium * 0.3 },
@@ -103,16 +111,16 @@ export function generateStrategySignals(quotes: QuoteData[]): ThetaSignal[] {
         { action: 'BUY', optionType: 'PE', strike: buyPutStrike, expiry: getNextThursday(), lotSize: 50, quantity: 1, premium: putPremium * 0.3 },
       ],
       netCredit: netCredit * 50,
-      maxRisk: (100 - netCredit) * 50,
+      maxRisk: (spreadWidth - netCredit) * 50,
       maxProfit: netCredit * 50,
-      probability: regime === 'NORMAL' ? 68 : 62,
-      urgency: 'MEDIUM',
+      probability: regime === 'NORMAL' ? 68 : regime === 'ELEVATED' ? 58 : 62,
+      urgency: regime === 'ELEVATED' ? 'HIGH' : 'MEDIUM',
       regime,
       timestamp: Date.now(),
     });
   }
 
-  if (banknifty && regime === 'NORMAL') {
+  if (banknifty && (regime === 'NORMAL' || regime === 'CRUSHED')) {
     const spot = banknifty.ltp;
     const roundedSpot = Math.round(spot / 100) * 100;
     const sellPutStrike = roundedSpot - 500;

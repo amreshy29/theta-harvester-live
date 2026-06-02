@@ -794,6 +794,11 @@ export default function ThetaDash() {
                 {/* Sub Tab contents */}
                 {activeSwingTab === 'watchlist' && (
                   <div className="card fi" style={{padding:0,overflowX:'auto'}}>
+                    {!swingReport.watchlist?.length ? (
+                      <div style={{padding:40,textAlign:'center',color:'#4a6070',fontSize:12}}>
+                        No setups qualified all 12 rules today. Market data loaded live — run a fresh scan tomorrow or after a high-volume session.
+                      </div>
+                    ) : (
                     <table style={{width:'100%',borderCollapse:'collapse',minWidth:800}}>
                       <thead>
                         <tr style={{borderBottom:'1px solid #1e2d3d',background:'rgba(30,45,61,0.2)'}}>
@@ -851,6 +856,7 @@ export default function ThetaDash() {
                         })}
                       </tbody>
                     </table>
+                    )}
                   </div>
                 )}
 

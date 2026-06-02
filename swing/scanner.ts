@@ -20,6 +20,7 @@ import {
 } from './types';
 
 const FYERS_HISTORY_URL = 'https://api-t1.fyers.in/data/history';
+const FYERS_QUOTES_URL  = 'https://api-t1.fyers.in/data/quotes';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TECHNICAL INDICATOR CALCULATORS
@@ -94,6 +95,60 @@ function calculateATR(candles: { high: number; low: number; close: number }[], p
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// DYNAMIC VOLUME-BASED CANDIDATE SELECTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Fetch live quotes for the entire base universe in batches of 50, then rank
+ * by today's rupee volume (price × volume).  Returns the top `topN` stocks so
+ * the 12-stage scanner focuses on what the market is actually trading today.
+ */
+async function fetchTopVolumeStocks(
+  baseUniverse: WatchlistStock[],
+  topN = 50
+): Promise<WatchlistStock[]> {
+  const BATCH = 50;
+  const scored: Array<{ symbol: string; valueTraded: number }> = [];
+
+  for (let i = 0; i < baseUniverse.length; i += BATCH) {
+    const batch = baseUniverse.slice(i, i + BATCH);
+    const symbolStr = batch.map(s => s.symbol).join(',');
+    try {
+      const res = await fetch(
+        `${FYERS_QUOTES_URL}?symbols=${encodeURIComponent(symbolStr)}`,
+        { headers: getFyersHeaders(), cache: 'no-store' }
+      );
+      if (!res.ok) continue;
+      const json = await res.json();
+      if (json.s !== 'ok' || !Array.isArray(json.d)) continue;
+      for (const item of json.d) {
+        const lp  = item.v?.lp     || 0;
+        const vol = item.v?.volume || 0;
+        if (lp > 0 && vol > 0) {
+          scored.push({ symbol: item.n, valueTraded: lp * vol });
+        }
+      }
+    } catch {
+      // skip failed batch — continue with partial results
+    }
+  }
+
+  if (scored.length === 0) {
+    // Quotes fetch failed entirely — fall back to first topN in static order
+    console.warn('[SwingScanner] Volume ranking failed; using static list order.');
+    return baseUniverse.slice(0, topN);
+  }
+
+  scored.sort((a, b) => b.valueTraded - a.valueTraded);
+  const lookup = new Map(baseUniverse.map(s => [s.symbol, s]));
+
+  return scored
+    .slice(0, topN)
+    .map(q => lookup.get(q.symbol))
+    .filter((s): s is WatchlistStock => s !== undefined);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // QUANTITATIVE SCANNERS (STAGES 1 - 12)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -109,7 +164,7 @@ async function fetchFyersHistory(
     
     const res = await fetch(url, { headers, cache: 'no-store' });
     if (!res.ok) return [];
-    
+
     const json = await res.json();
     if (json.s !== 'ok' || !json.candles) return [];
     
@@ -889,7 +944,7 @@ export async function runSwingScan(): Promise<SwingScanReport> {
     // 1. Fetch NIFTY index daily candles to establish market environment & relative strength benchmark
     const now = new Date();
     const fromDate = new Date();
-    fromDate.setDate(now.getDate() - 300); // 300 days for index EMAs & history
+    fromDate.setDate(now.getDate() - 365); // Fyers API max is 366 days; 365 days ≈ 252 trading candles
     
     const fmtDate = (d: Date) => d.toISOString().split('T')[0];
     const fromStr = fmtDate(fromDate);
@@ -902,34 +957,49 @@ export async function runSwingScan(): Promise<SwingScanReport> {
       throw new Error('Failed to fetch benchmark indices or insufficient historical data.');
     }
 
-    // Determine market trend
+    // Determine market trend using both NIFTY and BANKNIFTY
     const niftyCloses = niftyDaily.map(c => c.close);
     const niftyEma20 = calculateEMA(niftyCloses, 20).pop() || 0;
     const niftyEma50 = calculateEMA(niftyCloses, 50).pop() || 0;
     const niftyEma200 = calculateEMA(niftyCloses, 200).pop() || 0;
-    
+    const niftyLtp = niftyCloses[niftyCloses.length - 1];
     const isNiftyBullish = niftyEma20 > niftyEma50 && niftyEma50 > niftyEma200;
-    
+
+    const bankNiftyCloses = bankNiftyDaily.map(c => c.close);
+    const bnEma20 = calculateEMA(bankNiftyCloses, 20).pop() || 0;
+    const bnEma50 = calculateEMA(bankNiftyCloses, 50).pop() || 0;
+    const bnEma200 = calculateEMA(bankNiftyCloses, 200).pop() || 0;
+    const bnLtp = bankNiftyCloses[bankNiftyCloses.length - 1];
+    const isBankNiftyBullish = bnEma20 > bnEma50 && bnEma50 > bnEma200;
+
+    const classification =
+      isNiftyBullish && isBankNiftyBullish ? 'Strong Bullish'
+      : isNiftyBullish ? 'Bullish'
+      : isBankNiftyBullish ? 'Neutral'
+      : 'Bearish';
+
     const marketEnv: MarketEnvironment = {
-      niftyTrend: `LTP: ₹${niftyCloses[niftyCloses.length - 1].toFixed(2)} (20 EMA: ${niftyEma20.toFixed(0)}, 50 EMA: ${niftyEma50.toFixed(0)}, 200 EMA: ${niftyEma200.toFixed(0)})`,
-      bankNiftyTrend: 'Index trading above 50 and 200 EMAs.',
+      niftyTrend: `LTP: ₹${niftyLtp.toFixed(0)} · EMA20: ${niftyEma20.toFixed(0)} · EMA50: ${niftyEma50.toFixed(0)} · EMA200: ${niftyEma200.toFixed(0)}`,
+      bankNiftyTrend: `LTP: ₹${bnLtp.toFixed(0)} · EMA20: ${bnEma20.toFixed(0)} · EMA50: ${bnEma50.toFixed(0)} · EMA200: ${bnEma200.toFixed(0)}`,
       marketBreadth: {
         above20EmaPct: 68,
         above50EmaPct: 62,
         above200EmaPct: 74
       },
-      classification: isNiftyBullish ? 'Bullish' : 'Neutral',
-      reasoning: `Nifty 50 trades above its major exponential moving averages. The 20 EMA exceeds 50 EMA which exceeds 200 EMA, confirming a positive primary daily trend. Market breadth is supportive with 68% of stocks above their 20 EMA.`
+      classification,
+      reasoning: `NIFTY at ₹${niftyLtp.toFixed(0)} — ${isNiftyBullish ? '20 EMA > 50 EMA > 200 EMA (Bullish)' : 'EMAs not aligned (Bearish/Neutral)'}. BankNifty at ₹${bnLtp.toFixed(0)} — ${isBankNiftyBullish ? 'EMAs aligned (Bullish)' : 'EMAs not aligned'}. Market classified as ${classification}.`
     };
 
     const watchlist: SwingTradeStock[] = [];
     const stocksToAvoid: { symbol: string; reason: string }[] = [];
 
-    // Scan the first 25 candidate stocks to keep API requests within limits and avoid timeout
-    const candidateList = SWING_WATCHLIST.slice(0, 25);
+    // Rank all ~200 universe stocks by today's rupee volume; scan the top 50
+    console.log('[SwingScanner] Ranking universe by live volume...');
+    const candidateList = await fetchTopVolumeStocks(SWING_WATCHLIST, 50);
+    console.log(`[SwingScanner] Selected top ${candidateList.length} stocks by value traded for 12-stage scan.`);
     
     const weeklyFromDate = new Date();
-    weeklyFromDate.setDate(now.getDate() - 450);
+    weeklyFromDate.setDate(now.getDate() - 365); // same 366-day API limit; 365 days = 52+ weekly candles
     const weeklyFromStr = fmtDate(weeklyFromDate);
 
     const batchSize = 5;
@@ -983,15 +1053,12 @@ export async function runSwingScan(): Promise<SwingScanReport> {
       }
     }
 
-    // If no stocks found, fallback to simulated to prevent empty dashboard
-    if (finalWatchlist.length === 0) {
-      console.log('[SwingScanner] No real setups met rules today. Fallback to mock.');
-      return generateSimulatedSwingReport();
-    }
-
     const top10 = finalWatchlist.slice(0, 10);
     const top3 = top10.slice(0, 3);
-    const bestTrade = top3[0] || null;
+
+    const noResultsNote = finalWatchlist.length === 0
+      ? ` No stocks met all 12-stage criteria in today's scan (${candidateList.length} scanned). Rules: EMA aligned, volume ≥1.5x avg, not extended >10%.`
+      : '';
 
     return {
       timestamp: new Date().toISOString(),
@@ -1000,15 +1067,15 @@ export async function runSwingScan(): Promise<SwingScanReport> {
         niftyStatus: marketEnv.niftyTrend,
         bankNiftyStatus: marketEnv.bankNiftyTrend,
         breadthStatus: `${marketEnv.marketBreadth.above20EmaPct}% above 20 EMA`,
-        reasoning: marketEnv.reasoning
+        reasoning: marketEnv.reasoning + noResultsNote
       },
       watchlist: top10,
       top3,
       stocksToAvoid: stocksToAvoid.slice(0, 5),
-      bestTrade
+      bestTrade: top3[0] || null
     };
   } catch (error) {
     console.error('[SwingScanner] Error during live scan execution:', error);
-    return generateSimulatedSwingReport();
+    throw error;
   }
 }

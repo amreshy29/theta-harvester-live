@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
     const quotes = await fetchQuotes(DEFAULT_WATCHLIST);
     const signals = generateStrategySignals(quotes);
 
-    const vix = quotes.find(q => q.symbol === 'NSE:INDIA VIX-INDEX')?.ltp || 15;
+    const vix = quotes.find(q => q.symbol === 'NSE:INDIAVIX-INDEX')?.ltp || 15;
     const nifty = quotes.find(q => q.symbol === 'NSE:NIFTY50-INDEX');
     const regime = classifyVixRegime(vix);
 
