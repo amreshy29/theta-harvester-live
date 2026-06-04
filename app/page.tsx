@@ -64,6 +64,22 @@ interface ApiResponse {
   isSimulated: boolean; timestamp: string; error?: string;
 }
 
+interface ATMCandle {
+  time: number; open: number; high: number; low: number; close: number; volume: number;
+}
+interface ATMTrade {
+  id: string; direction: 'LONG'|'SHORT'; entryPrice: number; entryTime: string;
+  atmStrike: number; target: number; stopLoss: number;
+  exitPrice?: number; exitTime?: string; pnlPts?: number; pnlRs?: number;
+  status: 'OPEN'|'TARGET'|'SL'|'MANUAL';
+}
+
+const ATM_CFG: Record<string, {name:string; step:number; lotSize:number; sym:string}> = {
+  'NSE:NIFTY50-INDEX':   {name:'NIFTY',     step:50,  lotSize:25, sym:'NIFTY 50'},
+  'NSE:NIFTYBANK-INDEX': {name:'BANKNIFTY', step:100, lotSize:15, sym:'BANKNIFTY'},
+  'NSE:FINNIFTY-INDEX':  {name:'FINNIFTY',  step:50,  lotSize:40, sym:'FINNIFTY'},
+};
+
 
 const safe = (n: number | undefined | null): number => (n == null || isNaN(n as number) ? 0 : n as number);
 const fmt = (n: number | undefined | null, dec = 0) =>
@@ -93,7 +109,7 @@ const NIFTY_INDEX_META: Record<string, {desc:string;label:string;color:string;bg
 };
 
 export default function ThetaDash() {
-  const [tab, setTab] = useState<'live'|'signals'|'positions'|'journal'|'indices'|'radar'>('live');
+  const [tab, setTab] = useState<'live'|'signals'|'positions'|'journal'|'indices'|'radar'|'atm'>('live');
   const [isDemo, setIsDemo] = useState(false);
   const [data, setData] = useState<ApiResponse | null>(null);
   const [positions, setPositions] = useState<PaperPosition[]>([]);
@@ -117,6 +133,38 @@ export default function ThetaDash() {
   const [screenerScannedAt, setScreenerScannedAt] = useState<string | null>(null);
   const [screenerIsDemo, setScreenerIsDemo] = useState(false);
   const [screenerFilter, setScreenerFilter] = useState({ minVol: 1.5, minDepth: 20, maxDepth: 50 });
+
+  // ATM Analysis tab — 1-minute candle engine + paper trade manager
+  const [atmIdxState, _setAtmIdx]     = useState('NSE:NIFTY50-INDEX');
+  const [atmAutoTrade, _setAtmAuto]   = useState(true);
+  const [atmTargetPts, _setAtmTarget] = useState(20);
+  const [atmSlPts, _setAtmSl]         = useState(10);
+  const [atmCurrentCandle, setAtmCurrentCandle] = useState<ATMCandle | null>(null);
+  const [atmCandleHistory, setAtmCandleHistory] = useState<ATMCandle[]>([]);
+  const [atmActiveTrade,   setAtmActiveTrade]   = useState<ATMTrade | null>(null);
+  const [atmTradeLog,      setAtmTradeLog]       = useState<ATMTrade[]>([]);
+  const [atmSignal, setAtmSignal] = useState<{dir:'LONG'|'SHORT';price:number;candleHigh:number;candleLow:number;time:string}|null>(null);
+
+  // Refs — always-fresh values readable inside stable callbacks
+  const atmIdxRef     = useRef('NSE:NIFTY50-INDEX');
+  const atmAutoRef    = useRef(true);
+  const atmTargetRef  = useRef(20);
+  const atmSlRef      = useRef(10);
+  const atmCandleRef  = useRef<ATMCandle | null>(null);
+  const atmCandlesRef = useRef<ATMCandle[]>([]);
+  const atmActiveRef  = useRef<ATMTrade | null>(null);
+  const atmLastBrkRef = useRef<number>(0);
+
+  // Wrapper setters that keep state + ref in sync
+  const setAtmIdx    = (v: string)  => { _setAtmIdx(v);    atmIdxRef.current    = v;  };
+  const setAtmAuto   = (v: boolean) => { _setAtmAuto(v);   atmAutoRef.current   = v;  };
+  const setAtmTarget = (v: number)  => { _setAtmTarget(v); atmTargetRef.current = v;  };
+  const setAtmSl     = (v: number)  => { _setAtmSl(v);     atmSlRef.current     = v;  };
+
+  // Function refs — reassigned every render so stable callbacks get fresh closures
+  const atmOpenRef  = useRef<(dir:'LONG'|'SHORT', price:number)=>void>(() => {});
+  const atmCloseRef = useRef<(price:number, reason:'TARGET'|'SL'|'MANUAL')=>void>(() => {});
+
   const esRef  = useRef<EventSource | null>(null);
   const posRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -132,6 +180,79 @@ export default function ThetaDash() {
     setToasts(t => [...t, {id, msg, type}]);
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3500);
   };
+
+  // Reassign every render → fresh access to addToast, setters, etc.
+  atmOpenRef.current = (dir, entryPrice) => {
+    const cfg = ATM_CFG[atmIdxRef.current];
+    const atmStrike = Math.round(entryPrice / cfg.step) * cfg.step;
+    const target  = dir === 'LONG' ? entryPrice + atmTargetRef.current : entryPrice - atmTargetRef.current;
+    const stopLoss = dir === 'LONG' ? entryPrice - atmSlRef.current    : entryPrice + atmSlRef.current;
+    const trade: ATMTrade = {
+      id: Date.now().toString(), direction: dir, entryPrice,
+      entryTime: new Date().toLocaleTimeString('en-IN'),
+      atmStrike, target, stopLoss, status: 'OPEN',
+    };
+    atmActiveRef.current = trade;
+    setAtmActiveTrade(trade);
+    addToast(`ATM ${dir === 'LONG' ? '↑ CE BUY' : '↓ PE BUY'} @ ₹${entryPrice.toFixed(1)} · T:+${atmTargetRef.current} SL:-${atmSlRef.current} pts`);
+  };
+
+  atmCloseRef.current = (exitPrice, reason) => {
+    const trade = atmActiveRef.current;
+    if (!trade) return;
+    const cfg     = ATM_CFG[atmIdxRef.current];
+    const pnlPts  = trade.direction === 'LONG' ? exitPrice - trade.entryPrice : trade.entryPrice - exitPrice;
+    const pnlRs   = pnlPts * cfg.lotSize;
+    const closed: ATMTrade = { ...trade, exitPrice, exitTime: new Date().toLocaleTimeString('en-IN'), pnlPts, pnlRs, status: reason };
+    atmActiveRef.current = null;
+    setAtmActiveTrade(null);
+    setAtmTradeLog(prev => [closed, ...prev]);
+    const icon = reason === 'TARGET' ? '✅ Target' : reason === 'SL' ? '🛑 SL' : '⏹ Closed';
+    addToast(`${icon}: ${pnlPts >= 0 ? '+' : ''}${pnlPts.toFixed(1)} pts · ₹${pnlRs >= 0 ? '+' : ''}${pnlRs.toFixed(0)}`, reason === 'TARGET' || reason === 'MANUAL' ? 'ok' : 'err');
+  };
+
+  // Stable 1-minute candle builder + breakout detector (reads only refs, writes via stable setters)
+  const processATMTick = useCallback((ltp: number, ts: number, vol: number) => {
+    const minuteMs = Math.floor(((ts > 0 ? ts : Date.now())) / 60000) * 60000;
+
+    // 1. Check active trade exit on every tick
+    const active = atmActiveRef.current;
+    if (active) {
+      const hitTarget = active.direction === 'LONG' ? ltp >= active.target  : ltp <= active.target;
+      const hitSL     = active.direction === 'LONG' ? ltp <= active.stopLoss : ltp >= active.stopLoss;
+      if (hitTarget) { atmCloseRef.current(ltp, 'TARGET'); return; }
+      if (hitSL)     { atmCloseRef.current(ltp, 'SL');     return; }
+    }
+
+    // 2. Candle building
+    const prev = atmCandleRef.current;
+    if (!prev || minuteMs > prev.time) {
+      if (prev) {
+        const closed = { ...prev };
+        atmCandlesRef.current = [...atmCandlesRef.current.slice(-29), closed];
+        setAtmCandleHistory([...atmCandlesRef.current]);
+        // Breakout check against the just-closed candle
+        if (!atmActiveRef.current && atmLastBrkRef.current !== closed.time) {
+          if (ltp > closed.high) {
+            atmLastBrkRef.current = closed.time;
+            setAtmSignal({ dir: 'LONG',  price: ltp, candleHigh: closed.high, candleLow: closed.low, time: new Date().toLocaleTimeString('en-IN') });
+            if (atmAutoRef.current) atmOpenRef.current('LONG',  ltp);
+          } else if (ltp < closed.low) {
+            atmLastBrkRef.current = closed.time;
+            setAtmSignal({ dir: 'SHORT', price: ltp, candleHigh: closed.high, candleLow: closed.low, time: new Date().toLocaleTimeString('en-IN') });
+            if (atmAutoRef.current) atmOpenRef.current('SHORT', ltp);
+          }
+        }
+      }
+      const nc: ATMCandle = { time: minuteMs, open: ltp, high: ltp, low: ltp, close: ltp, volume: vol };
+      atmCandleRef.current = nc;
+      setAtmCurrentCandle({ ...nc });
+    } else {
+      const nc: ATMCandle = { ...prev, high: Math.max(prev.high, ltp), low: Math.min(prev.low, ltp), close: ltp };
+      atmCandleRef.current = nc;
+      setAtmCurrentCandle({ ...nc });
+    }
+  }, []); // empty deps: reads refs, writes stable setters
 
   const testConnection = async () => {
     setCheckingConn(true);
@@ -272,6 +393,12 @@ export default function ThetaDash() {
     if (tab === 'journal') fetchAnalytics();
     if (tab === 'radar' && !screenerStocks && !screenerLoading) runScreener();
   }, [tab, fetchAnalytics, screenerStocks, screenerLoading, runScreener]);
+
+  // Feed live NIFTY ticks into the 1-min candle engine whenever data updates
+  useEffect(() => {
+    const q = data?.quotes.find(q => q.symbol === atmIdxRef.current);
+    if (q && q.ltp > 0) processATMTick(q.ltp, q.timestamp ?? 0, q.volume ?? 0);
+  }, [data, processATMTick]);
 
   // ── SSE stream: real-time ticks from Fyers WebSocket (or simulated) ──────
   useEffect(() => {
@@ -450,6 +577,7 @@ export default function ThetaDash() {
         <button className={`tb ${tab==='journal'?'a':''}`} onClick={()=>setTab('journal')}>📒 Journal</button>
         <button className={`tb ${tab==='indices'?'a':''}`} onClick={()=>setTab('indices')}>📊 Nifty Indices</button>
         <button className={`tb ${tab==='radar'?'a':''}`} onClick={()=>setTab('radar')}>🔍 Breakout Radar {screenerStocks?.length?`(${screenerStocks.length})`:''}</button>
+        <button className={`tb ${tab==='atm'?'a':''}`} onClick={()=>setTab('atm')}>🎯 ATM Analysis {atmActiveTrade?'●':''}</button>
       </div>
 
       {/* MAIN CONTENT */}
@@ -690,6 +818,319 @@ export default function ThetaDash() {
               </div>
             )}
           </div>
+
+        ) : tab==='atm' ? (
+          (() => {
+            const cfg = ATM_CFG[atmIdxState];
+            const currentPrice = data?.quotes.find(q => q.symbol === atmIdxState)?.ltp ?? 0;
+            const atmStrike    = currentPrice > 0 ? Math.round(currentPrice / cfg.step) * cfg.step : 0;
+            const allCandles   = [...atmCandleHistory, ...(atmCurrentCandle ? [atmCurrentCandle] : [])];
+            const visible      = allCandles.slice(-25);
+
+            // Live P&L of active trade (computed from current price, no extra state)
+            const livePnlPts = atmActiveTrade && currentPrice > 0
+              ? (atmActiveTrade.direction === 'LONG' ? currentPrice - atmActiveTrade.entryPrice : atmActiveTrade.entryPrice - currentPrice)
+              : 0;
+            const livePnlRs  = livePnlPts * cfg.lotSize;
+            const targetPts  = atmActiveTrade ? Math.abs(atmActiveTrade.target - atmActiveTrade.entryPrice) : 0;
+            const progress   = targetPts > 0 ? Math.max(0, Math.min(100, (livePnlPts / targetPts) * 100)) : 0;
+
+            // SVG chart helper
+            const VW = 580, VH = 210;
+            const PAD = { L: 52, R: 16, T: 10, B: 26 };
+            const IW = VW - PAD.L - PAD.R, IH = VH - PAD.T - PAD.B;
+            const N = Math.max(visible.length, 1);
+            const slotW = IW / N;
+            const bodyW = Math.max(2, slotW * 0.62);
+            const pricesToScale = visible.flatMap(c => [c.high, c.low]);
+            if (atmActiveTrade) pricesToScale.push(atmActiveTrade.entryPrice, atmActiveTrade.target, atmActiveTrade.stopLoss);
+            if (currentPrice > 0) pricesToScale.push(currentPrice);
+            const minP = Math.min(...pricesToScale, currentPrice > 0 ? currentPrice : Infinity);
+            const maxP = Math.max(...pricesToScale, 0);
+            const pr   = Math.max(maxP - minP, 1);
+            const lo   = minP - pr * 0.1;
+            const hi   = maxP + pr * 0.1;
+            const tr   = hi - lo;
+            const toY  = (p: number) => PAD.T + IH - ((p - lo) / tr) * IH;
+            const toX  = (i: number) => PAD.L + i * slotW + slotW / 2;
+            const lastClosed = atmCandleHistory.at(-1);
+
+            const winTrades  = atmTradeLog.filter(t => (t.pnlPts ?? 0) > 0).length;
+            const totalTrades = atmTradeLog.length;
+            const totalPnlPts = atmTradeLog.reduce((s, t) => s + (t.pnlPts ?? 0), 0);
+            const totalPnlRs  = atmTradeLog.reduce((s, t) => s + (t.pnlRs  ?? 0), 0);
+
+            return (
+              <div>
+                {/* Header row */}
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:12,marginBottom:16}}>
+                  <div>
+                    <div style={{fontFamily:'Syne',fontSize:14,fontWeight:700,color:'#e8b86d',marginBottom:4}}>ATM Analysis — 1-Min Breakout</div>
+                    <div style={{fontSize:10,color:'#4a6070',textTransform:'uppercase',letterSpacing:'.08em'}}>
+                      {currentPrice > 0
+                        ? `${cfg.sym}  ₹${currentPrice.toLocaleString('en-IN',{maximumFractionDigits:1})}  ·  ATM ${atmStrike} CE / PE  ·  ${atmCandleHistory.length} candles built`
+                        : 'Connect Fyers to start receiving live ticks'}
+                    </div>
+                  </div>
+                  {/* Controls */}
+                  <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+                    <select value={atmIdxState} onChange={e=>{setAtmIdx(e.target.value); atmCandleRef.current=null; atmCandlesRef.current=[]; setAtmCurrentCandle(null); setAtmCandleHistory([]); setAtmSignal(null);}}
+                      style={{background:'#0d1219',border:'1px solid #1e2d3d',color:'#c8d8e8',fontFamily:'inherit',fontSize:10,padding:'5px 8px',cursor:'pointer'}}>
+                      <option value="NSE:NIFTY50-INDEX">NIFTY 50</option>
+                      <option value="NSE:NIFTYBANK-INDEX">BANKNIFTY</option>
+                      <option value="NSE:FINNIFTY-INDEX">FINNIFTY</option>
+                    </select>
+                    <div style={{display:'flex',alignItems:'center',gap:6,fontSize:10}}>
+                      <span style={{color:'#4a6070'}}>Target</span>
+                      <input type="number" value={atmTargetPts} min={5} max={100} step={5}
+                        onChange={e=>setAtmTarget(Math.max(5,parseInt(e.target.value)||20))}
+                        style={{width:44,background:'#0d1219',border:'1px solid #1e2d3d',color:'#4ade80',fontFamily:'inherit',fontSize:10,padding:'4px 6px',textAlign:'center'}} />
+                      <span style={{color:'#4a6070'}}>pts</span>
+                    </div>
+                    <div style={{display:'flex',alignItems:'center',gap:6,fontSize:10}}>
+                      <span style={{color:'#4a6070'}}>SL</span>
+                      <input type="number" value={atmSlPts} min={5} max={100} step={5}
+                        onChange={e=>setAtmSl(Math.max(5,parseInt(e.target.value)||10))}
+                        style={{width:44,background:'#0d1219',border:'1px solid #1e2d3d',color:'#f87171',fontFamily:'inherit',fontSize:10,padding:'4px 6px',textAlign:'center'}} />
+                      <span style={{color:'#4a6070'}}>pts</span>
+                    </div>
+                    <button
+                      onClick={()=>setAtmAuto(!atmAutoTrade)}
+                      style={{background:atmAutoTrade?'rgba(74,222,128,.1)':'#0d1219',border:`1px solid ${atmAutoTrade?'rgba(74,222,128,.4)':'#1e2d3d'}`,color:atmAutoTrade?'#4ade80':'#4a6070',fontFamily:'inherit',fontSize:10,padding:'5px 12px',cursor:'pointer',letterSpacing:'.07em',textTransform:'uppercase'}}>
+                      {atmAutoTrade ? '⚡ Auto ON' : 'Auto OFF'}
+                    </button>
+                    {atmActiveTrade && (
+                      <button className="btn btnr" style={{fontSize:10,padding:'5px 12px'}}
+                        onClick={()=>atmCloseRef.current(currentPrice || atmActiveTrade.entryPrice, 'MANUAL')}>
+                        ⏹ Exit Trade
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Signal banner */}
+                {atmSignal && (
+                  <div style={{marginBottom:12,padding:'10px 16px',background:atmSignal.dir==='LONG'?'rgba(74,222,128,.08)':'rgba(248,113,113,.08)',border:`1px solid ${atmSignal.dir==='LONG'?'rgba(74,222,128,.3)':'rgba(248,113,113,.3)'}`,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+                    <div style={{display:'flex',alignItems:'center',gap:12}}>
+                      <span style={{fontFamily:'Syne',fontWeight:700,fontSize:16,color:atmSignal.dir==='LONG'?'#4ade80':'#f87171'}}>{atmSignal.dir==='LONG'?'↑ LONG SIGNAL':'↓ SHORT SIGNAL'}</span>
+                      <span style={{fontSize:11,color:'#8aa4b8'}}>{atmSignal.dir==='LONG'?`Broke above ${cfg.sym} high ₹${atmSignal.candleHigh.toFixed(1)}`:`Broke below ${cfg.sym} low ₹${atmSignal.candleLow.toFixed(1)}`}</span>
+                    </div>
+                    <div style={{display:'flex',gap:16,fontSize:10,color:'#4a6070'}}>
+                      <span>Entry: <b style={{color:'#f0f4f8'}}>₹{atmSignal.price.toFixed(1)}</b></span>
+                      <span>ATM Strike: <b style={{color:'#e8b86d'}}>{Math.round(atmSignal.price / cfg.step) * cfg.step} {atmSignal.dir==='LONG'?'CE':'PE'}</b></span>
+                      <span style={{color:'#4a6070'}}>{atmSignal.time}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Current 1-min candle stats */}
+                {atmCurrentCandle && (
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:10,marginBottom:14}}>
+                    {[
+                      {l:'1-Min Open',  v:atmCurrentCandle.open.toFixed(1),  c:'#8aa4b8'},
+                      {l:'1-Min High',  v:atmCurrentCandle.high.toFixed(1),  c:'#4ade80'},
+                      {l:'1-Min Low',   v:atmCurrentCandle.low.toFixed(1),   c:'#f87171'},
+                      {l:'1-Min Close', v:atmCurrentCandle.close.toFixed(1), c:(atmCurrentCandle.close>=atmCurrentCandle.open?'#4ade80':'#f87171')},
+                      {l:'Range',       v:`${(atmCurrentCandle.high-atmCurrentCandle.low).toFixed(1)} pts`, c:'#fbbf24'},
+                      {l:'ATM Strike',  v:`${atmStrike > 0 ? atmStrike : '—'}`,  c:'#a78bfa'},
+                      ...(lastClosed ? [{l:'Prev High', v:lastClosed.high.toFixed(1), c:'rgba(74,222,128,.7)'}, {l:'Prev Low', v:lastClosed.low.toFixed(1), c:'rgba(248,113,113,.7)'}] : []),
+                    ].map(s=>(
+                      <div key={s.l} className="card" style={{padding:'10px 12px',position:'relative',overflow:'hidden'}}>
+                        <div style={{position:'absolute',top:0,left:0,right:0,height:2,background:s.c,opacity:.5}}></div>
+                        <div style={{fontSize:8,color:'#4a6070',textTransform:'uppercase',letterSpacing:'.1em',marginBottom:4}}>{s.l}</div>
+                        <div style={{fontFamily:'Syne',fontSize:16,fontWeight:700,color:s.c}}>{s.v}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* 1-minute candlestick chart */}
+                <div className="card" style={{marginBottom:14,padding:'14px 12px'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+                    <div style={{fontFamily:'Syne',fontWeight:700,fontSize:11,textTransform:'uppercase',letterSpacing:'.1em',color:'#e8b86d'}}>1-Minute Chart · {cfg.sym}</div>
+                    <div style={{display:'flex',gap:16,fontSize:9,color:'#4a6070'}}>
+                      <span><span style={{color:'rgba(74,222,128,.7)'}}>—·—</span> Prev High</span>
+                      <span><span style={{color:'rgba(248,113,113,.7)'}}>—·—</span> Prev Low</span>
+                      {atmActiveTrade && <><span><span style={{color:'#e8b86d'}}>——</span> Entry</span><span><span style={{color:'#4ade80'}}>——</span> Target</span><span><span style={{color:'#f87171'}}>——</span> SL</span></>}
+                    </div>
+                  </div>
+                  {visible.length === 0 ? (
+                    <div style={{height:170,display:'flex',alignItems:'center',justifyContent:'center',color:'#4a6070',fontSize:11}}>
+                      Waiting for live price ticks to build 1-min candles…
+                    </div>
+                  ) : (
+                    <svg viewBox={`0 0 ${VW} ${VH}`} style={{width:'100%',height:180}} aria-hidden="true">
+                      {/* Y grid */}
+                      {[0,.25,.5,.75,1].map(t => {
+                        const y = PAD.T + IH * t;
+                        const p = hi - tr * t;
+                        return (
+                          <g key={t}>
+                            <line x1={PAD.L} x2={VW-PAD.R} y1={y} y2={y} stroke="#111d28" strokeWidth={t===0||t===1?0.8:0.4} />
+                            <text x={PAD.L-3} y={y+3} textAnchor="end" fill="#3a5060" fontSize={7.5} fontFamily="monospace">{Math.round(p).toLocaleString('en-IN')}</text>
+                          </g>
+                        );
+                      })}
+                      {/* Prev candle breakout reference lines */}
+                      {lastClosed && lo < lastClosed.high && lastClosed.high < hi && (
+                        <line x1={PAD.L} x2={VW-PAD.R} y1={toY(lastClosed.high)} y2={toY(lastClosed.high)} stroke="rgba(74,222,128,.55)" strokeWidth={0.9} strokeDasharray="5,3" />
+                      )}
+                      {lastClosed && lo < lastClosed.low && lastClosed.low < hi && (
+                        <line x1={PAD.L} x2={VW-PAD.R} y1={toY(lastClosed.low)} y2={toY(lastClosed.low)} stroke="rgba(248,113,113,.55)" strokeWidth={0.9} strokeDasharray="5,3" />
+                      )}
+                      {/* Active trade levels */}
+                      {atmActiveTrade && lo < atmActiveTrade.entryPrice && atmActiveTrade.entryPrice < hi && (
+                        <line x1={PAD.L} x2={VW-PAD.R} y1={toY(atmActiveTrade.entryPrice)} y2={toY(atmActiveTrade.entryPrice)} stroke="rgba(232,184,109,.9)" strokeWidth={1.1} strokeDasharray="8,3" />
+                      )}
+                      {atmActiveTrade && lo < atmActiveTrade.target && atmActiveTrade.target < hi && (
+                        <line x1={PAD.L} x2={VW-PAD.R} y1={toY(atmActiveTrade.target)} y2={toY(atmActiveTrade.target)} stroke="rgba(74,222,128,.9)" strokeWidth={1.1} strokeDasharray="8,3" />
+                      )}
+                      {atmActiveTrade && lo < atmActiveTrade.stopLoss && atmActiveTrade.stopLoss < hi && (
+                        <line x1={PAD.L} x2={VW-PAD.R} y1={toY(atmActiveTrade.stopLoss)} y2={toY(atmActiveTrade.stopLoss)} stroke="rgba(248,113,113,.9)" strokeWidth={1.1} strokeDasharray="8,3" />
+                      )}
+                      {/* Candles */}
+                      {visible.map((c, i) => {
+                        const x = toX(i);
+                        const isGreen  = c.close >= c.open;
+                        const col      = isGreen ? '#4ade80' : '#f87171';
+                        const isCur    = i === N - 1;
+                        const bTop     = toY(Math.max(c.open, c.close));
+                        const bBot     = toY(Math.min(c.open, c.close));
+                        const bH       = Math.max(1, bBot - bTop);
+                        return (
+                          <g key={c.time} opacity={isCur ? 1 : 0.82}>
+                            <line x1={x} x2={x} y1={toY(c.high)} y2={toY(c.low)} stroke={col} strokeWidth={1} />
+                            <rect x={x - bodyW/2} y={bTop} width={bodyW} height={bH}
+                              fill={isCur ? `${col}40` : col} stroke={col} strokeWidth={0.5} rx={0.5} />
+                          </g>
+                        );
+                      })}
+                      {/* Time axis */}
+                      {visible.map((c, i) => {
+                        if (i % 5 !== 0 && i !== N-1) return null;
+                        const d = new Date(c.time);
+                        const lbl = `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+                        return (
+                          <text key={c.time} x={toX(i)} y={VH-5} textAnchor="middle" fill="#3a5060" fontSize={7} fontFamily="monospace">{lbl}</text>
+                        );
+                      })}
+                      {/* Live price dot */}
+                      {currentPrice > 0 && lo < currentPrice && currentPrice < hi && (
+                        <circle cx={VW-PAD.R-4} cy={toY(currentPrice)} r={3} fill="#fbbf24" className="pulse" />
+                      )}
+                    </svg>
+                  )}
+                </div>
+
+                {/* Active trade card */}
+                {atmActiveTrade ? (
+                  <div className="card fi" style={{marginBottom:14,borderColor:livePnlPts>=0?'rgba(74,222,128,.3)':'rgba(248,113,113,.3)',background:livePnlPts>=0?'rgba(74,222,128,.03)':'rgba(248,113,113,.03)'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:12}}>
+                      <div>
+                        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+                          <span style={{fontFamily:'Syne',fontWeight:700,fontSize:15,color:atmActiveTrade.direction==='LONG'?'#4ade80':'#f87171'}}>
+                            {atmActiveTrade.direction==='LONG'?'↑ LONG CE':'↓ SHORT PE'}
+                          </span>
+                          <span style={{fontSize:11,color:'#8aa4b8'}}>· Strike {atmActiveTrade.atmStrike} · {cfg.sym}</span>
+                          <span style={{fontSize:9,padding:'1px 7px',background:'rgba(74,222,128,.1)',border:'1px solid rgba(74,222,128,.2)',color:'#4ade80',letterSpacing:'.06em'}}>OPEN</span>
+                        </div>
+                        <div style={{display:'flex',gap:20,fontSize:11,flexWrap:'wrap'}}>
+                          <span><span style={{color:'#4a6070'}}>Entry </span><b style={{color:'#e8b86d'}}>₹{atmActiveTrade.entryPrice.toFixed(1)}</b></span>
+                          <span><span style={{color:'#4a6070'}}>Target </span><b style={{color:'#4ade80'}}>₹{atmActiveTrade.target.toFixed(1)} (+{atmTargetPts}pts)</b></span>
+                          <span><span style={{color:'#4a6070'}}>SL </span><b style={{color:'#f87171'}}>₹{atmActiveTrade.stopLoss.toFixed(1)} (-{atmSlPts}pts)</b></span>
+                          <span style={{color:'#4a6070'}}>{atmActiveTrade.entryTime}</span>
+                        </div>
+                      </div>
+                      <div style={{textAlign:'right'}}>
+                        <div style={{fontSize:9,color:'#4a6070',textTransform:'uppercase',marginBottom:2}}>Live P&L</div>
+                        <div style={{fontFamily:'Syne',fontSize:22,fontWeight:800,color:livePnlPts>=0?'#4ade80':'#f87171'}}>
+                          {livePnlPts>=0?'+':''}{livePnlPts.toFixed(1)} <span style={{fontSize:13}}>pts</span>
+                        </div>
+                        <div style={{fontSize:11,color:livePnlPts>=0?'#4ade80':'#f87171'}}>₹{livePnlRs>=0?'+':''}{livePnlRs.toFixed(0)}</div>
+                      </div>
+                    </div>
+                    {/* Target progress bar */}
+                    <div style={{marginTop:12}}>
+                      <div style={{display:'flex',justifyContent:'space-between',fontSize:9,color:'#4a6070',marginBottom:4}}>
+                        <span>Progress to target</span>
+                        <span style={{color:livePnlPts>=0?'#4ade80':'#f87171'}}>{progress.toFixed(0)}%</span>
+                      </div>
+                      <div style={{height:5,background:'#111820',borderRadius:2,overflow:'hidden'}}>
+                        <div style={{height:'100%',width:`${Math.max(0,progress)}%`,background:livePnlPts>=0?'#4ade80':'#f87171',borderRadius:2,transition:'width .3s ease'}}></div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="card" style={{marginBottom:14,padding:'16px',display:'flex',alignItems:'center',gap:12}}>
+                    <span style={{fontSize:20}}>⏳</span>
+                    <div>
+                      <div style={{fontSize:11,color:'#8aa4b8'}}>{atmAutoTrade ? 'Watching for 1-min candle breakout…' : 'Auto-trade is OFF — signals will be shown but no trade will be entered.'}</div>
+                      <div style={{fontSize:10,color:'#4a6070',marginTop:3}}>Entry triggers when current price breaks above prev candle high (LONG) or below prev candle low (SHORT)</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Session stats */}
+                {totalTrades > 0 && (
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:10,marginBottom:14}}>
+                    {[
+                      {l:'Trades',  v:String(totalTrades),  c:'#8aa4b8'},
+                      {l:'Wins',    v:`${winTrades} (${totalTrades>0?Math.round(winTrades/totalTrades*100):0}%)`, c:'#4ade80'},
+                      {l:'Total Pts',v:`${totalPnlPts>=0?'+':''}${totalPnlPts.toFixed(1)}`, c:totalPnlPts>=0?'#4ade80':'#f87171'},
+                      {l:'Total P&L',v:`₹${totalPnlRs>=0?'+':''}${totalPnlRs.toFixed(0)}`,  c:totalPnlRs>=0?'#4ade80':'#f87171'},
+                    ].map(s=>(
+                      <div key={s.l} className="card" style={{padding:'10px 12px'}}>
+                        <div style={{fontSize:8,color:'#4a6070',textTransform:'uppercase',letterSpacing:'.1em',marginBottom:4}}>{s.l}</div>
+                        <div style={{fontFamily:'Syne',fontSize:16,fontWeight:700,color:s.c}}>{s.v}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Trade log */}
+                {atmTradeLog.length > 0 && (
+                  <div className="card" style={{overflowX:'auto'}}>
+                    <div style={{fontFamily:'Syne',fontWeight:700,fontSize:11,textTransform:'uppercase',letterSpacing:'.1em',color:'#e8b86d',marginBottom:12}}>Trade Log</div>
+                    <table style={{width:'100%',borderCollapse:'collapse',minWidth:540}}>
+                      <thead>
+                        <tr style={{borderBottom:'1px solid #1e2d3d'}}>
+                          {['#','Dir','Strike','Entry ₹','Exit ₹','P&L pts','P&L ₹','Exit','Time'].map(h=>(
+                            <th key={h} style={{padding:'6px 10px',textAlign:h==='Dir'?'left':'right',fontSize:9,textTransform:'uppercase',letterSpacing:'.08em',color:'#4a6070',fontWeight:400,whiteSpace:'nowrap'}}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {atmTradeLog.map((t, i) => {
+                          const pts = t.pnlPts ?? 0;
+                          const rs  = t.pnlRs  ?? 0;
+                          const pc  = pts >= 0 ? '#4ade80' : '#f87171';
+                          return (
+                            <tr key={t.id} style={{borderBottom:'1px solid rgba(30,45,61,.4)'}}>
+                              <td style={{padding:'7px 10px',textAlign:'right',color:'#4a6070',fontSize:10}}>{atmTradeLog.length - i}</td>
+                              <td style={{padding:'7px 10px',color:t.direction==='LONG'?'#4ade80':'#f87171',fontWeight:600,fontSize:11}}>{t.direction==='LONG'?'↑ CE':'↓ PE'}</td>
+                              <td style={{padding:'7px 10px',textAlign:'right',color:'#a78bfa'}}>{t.atmStrike}</td>
+                              <td style={{padding:'7px 10px',textAlign:'right',color:'#e8b86d'}}>{t.entryPrice.toFixed(1)}</td>
+                              <td style={{padding:'7px 10px',textAlign:'right',color:'#8aa4b8'}}>{t.exitPrice?.toFixed(1)??'—'}</td>
+                              <td style={{padding:'7px 10px',textAlign:'right',color:pc,fontWeight:600}}>{pts>=0?'+':''}{pts.toFixed(1)}</td>
+                              <td style={{padding:'7px 10px',textAlign:'right',color:pc}}>₹{rs>=0?'+':''}{rs.toFixed(0)}</td>
+                              <td style={{padding:'7px 10px',textAlign:'right'}}>
+                                <span className="pill" style={{
+                                  background:t.status==='TARGET'?'rgba(74,222,128,.1)':t.status==='SL'?'rgba(248,113,113,.1)':'rgba(148,163,184,.1)',
+                                  border:`1px solid ${t.status==='TARGET'?'rgba(74,222,128,.2)':t.status==='SL'?'rgba(248,113,113,.2)':'rgba(148,163,184,.2)'}`,
+                                  color:t.status==='TARGET'?'#4ade80':t.status==='SL'?'#f87171':'#94a3b8',
+                                }}>{t.status}</span>
+                              </td>
+                              <td style={{padding:'7px 10px',textAlign:'right',color:'#4a6070',fontSize:10}}>{t.entryTime}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })()
 
         ) : tab==='radar' ? (
           <div>
